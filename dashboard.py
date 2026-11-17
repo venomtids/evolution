@@ -294,6 +294,35 @@ def render_header():
     )
 
 
+def fetch_snapshot() -> Optional[bytes]:
+    """Busca o frame atual da câmera via API /snapshot."""
+    try:
+        resp = requests.get(
+            f"{API_BASE}:{config.API_PORT}/snapshot",
+            timeout=3,
+        )
+        if resp.status_code == 200:
+            return resp.content
+        print(f"/snapshot retornou {resp.status_code}: {resp.text[:100]}")
+    except Exception as e:
+        print(f"Erro ao buscar snapshot: {e}")
+    return None
+
+
+def render_live_camera():
+    """Card com a câmera ao vivo (snapshot atualizado a cada refresh)."""
+    st.markdown("### 📹 Câmera ao vivo")
+    img = fetch_snapshot()
+    if img:
+        st.image(img, use_container_width=True)
+        st.caption(f"Atualizado em {datetime.now():%H:%M:%S} UTC+0 · auto-refresh {REFRESH_SECONDS}s")
+    else:
+        st.info("Sem sinal da câmera — o Vision Monitor está rodando?")
+    st.markdown(
+        f"[🎥 Abrir stream MJPEG (site/APK)]({API_BASE}:{config.API_PORT}/stream)"
+    )
+
+
 def render_status_panel(status: str, magnitude: float):
     """Painel de status principal."""
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -528,6 +557,7 @@ def main_loop():
     col_left, col_right = st.columns([2, 1])
     
     with col_left:
+        render_live_camera()
         render_telemetry_chart(telemetry)
     
     with col_right:

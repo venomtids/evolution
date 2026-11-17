@@ -488,6 +488,29 @@ class VisionMonitor:
         if self.state != prev_state:
             logger.info(f"Transição: {prev_state} -> {self.state} (mag={magnitude:.3f})")
 
+    # ---------- Snapshot (frame ao vivo p/ API /site) ----------
+    def _save_latest_frame(self, frame: np.ndarray):
+        """
+        Salva o frame atual em CAPTURES_DIR/latest.jpg (escrita atômica via .tmp + os.replace).
+        A API serve esse arquivo em GET /snapshot e GET /stream.
+        Limitado a ~5 Hz para não thrash de disco.
+        """
+        now = time.time()
+        if now - getattr(self, "_last_snapshot_time", 0.0) < 0.2:
+            return
+        self._last_snapshot_time = now
+        try:
+            CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
+            tmp = CAPTURES_DIR / "latest.jpg.tmp"
+            final = CAPTURES_DIR / "latest.jpg"
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if not ok:
+                return
+            tmp.write_bytes(buf.tobytes())
+            os.replace(tmp, final)
+        except Exception as e:
+            logger.debug(f"Falha ao salvar latest.jpg: {e}")
+
     # ---------- Ações ----------
     def _save_capture(self, frame: np.ndarray, status: str) -> str:
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
@@ -599,6 +622,7 @@ class VisionMonitor:
                 continue
 
             self.frame_count += 1
+            self._save_latest_frame(frame)
             magnitude = self._detect(frame)
             self.current_magnitude = magnitude
             self._update_state(magnitude)

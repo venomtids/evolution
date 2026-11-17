@@ -40,6 +40,7 @@ from sqlalchemy.pool import StaticPool
 import aiohttp
 import pandas as pd
 import io
+import time
 
 # Configuração centralizada
 from config import config
@@ -870,6 +871,65 @@ async def export_csv(
     )
 
 
+# ===========================================================================
+# Endpoints de Vídeo ao Vivo (snapshot + stream MJPEG)
+# ===========================================================================
+
+SNAPSHOT_PATH = Path(config.CAPTURES_DIR) / "latest.jpg"
+SNAPSHOT_MAX_AGE_SECONDS = 2.0  # considera "sem sinal" se o último frame for mais velho
+
+@app.get("/snapshot")
+async def get_snapshot():
+    """
+    Último frame capturado pelo Vision Monitor (JPEG).
+    Público por design (câmeras IP / <img> do site logável não enviam headers).
+    Em produção, proteja via rede/reverse proxy.
+    """
+    if not SNAPSHOT_PATH.exists():
+        raise HTTPException(404, "Nenhum frame recente. O Vision Monitor está rodando?")
+    age = time.time() - SNAPSHOT_PATH.stat().st_mtime
+    if age > SNAPSHOT_MAX_AGE_SECONDS:
+        raise HTTPException(503, f"Frame desatualizado ({age:.1f}s). Verifique o Vision Monitor.")
+    return FileResponse(
+        SNAPSHOT_PATH,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/stream")
+async def stream_mjpeg():
+    """
+    Stream MJPEG (multipart/x-mixed-replace) para embutir ao vivo:
+        <img src="http://<host>:8000/stream">
+    Funciona em browsers, VLC, img/APKs com suporte a multipart MJPEG.
+    """
+    BOUNDARY = b"frame"
+
+    def generate():
+        while True:
+            try:
+                if SNAPSHOT_PATH.exists():
+                    data = SNAPSHOT_PATH.read_bytes()
+                    yield (
+                        b"--" + BOUNDARY + b"\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n"
+                        + data
+                        + b"\r\n"
+                    )
+            except Exception:
+                # Em caso de erro de leitura transitório, aguarda e tenta de novo
+                pass
+            time.sleep(0.15)  # ~6-7 FPS no stream
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/health")
 async def health_check():
     """Health check para monitoramento."""
@@ -991,6 +1051,20 @@ async def list_machines(user: User = Depends(get_current_user)):
         ],
         "user": user.username,
     }
+
+
+# ===========================================================================
+# Frontend estático (HMI dark) — servido pela própria API
+# Rotas da API têm precedência; o frontend fica na raiz "/".
+# ===========================================================================
+from fastapi.staticfiles import StaticFiles
+
+_FRONTEND_DIR = Path(__file__).parent / "frontend"
+_CAPTURES_DIR = Path(__file__).parent / "captures"
+
+if _CAPTURES_DIR.is_dir():
+    app.mount("/captures", StaticFiles(directory=str(_CAPTURES_DIR)), name="captures")
+app.mount("/", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
 
 
 # ===========================================================================

@@ -72,10 +72,11 @@ See `README.md` para passo a passo.
 - **Captura resiliente**: Webcam local (`0`) ou stream RTSP via `cv2.VideoCapture(url)` com reconexão em loop.
 - **ROI**: `[x, y, w, h]` para isolar a peça móvel; se `"auto"` → configurado interativamente.
 - **Calibração**: primeiros `calibration_secs` (default 3 s) para baseline de movimento.
-- **Detecção**: diferença de frames com filtragem Gaussiana + magnitude média como proxy vibração. (Farnebäck Farnebäck pode ser trocado por `cv2.calcOpticalFlowFarneback`).
+- **Detecção**: **Dense Optical Flow Farnebäck real** (`cv2.calcOpticalFlowFarneback`) restrito à ROI; índice de vibração = percentil 99 da magnitude do fluxo (robusto ao fundo estático e ruído).
 - **Estado com Debounce**: NORMAL → ALERTA (≥ threshold × `alert_debounce` frames) → CRITICO (≥ critical × `critical_debounce`). Transições controladas.
-- **Threads não-bloqueantes**: envio para API (`api_task`), notificações (`notif_task`) em `asyncio.create_task`.
-- **HUD**: desenha ROI, FPS, status e magnitude na janela OpenCV.
+- **Threads não-bloqueantes**: envio para API (`_send_to_api`), notificações (`_notify`), E-Stop ESP32 (`_trigger_esp32_stop`) em threads separadas.
+- **HUD**: desenha ROI, FPS, status e magnitude na janela OpenCV (desativado automaticamente em ambientes headless; force com `SHOW_HUD`).
+- **Snapshot ao vivo**: salva `captures/latest.jpg` a ~5 Hz para servir a câmera via API (`/snapshot`, `/stream`).
 
 ### 3.2 `api.py`
 - **FastAPI** no port 8000.
@@ -87,6 +88,13 @@ See `README.md` para passo a passo.
   - `POST /reset` — proxy para reset.
   - `GET /telemetry` — pontos em tempo real.
   - `GET /export/csv` — download CSV.
+  - `GET /snapshot` — **frame atual da câmera** (JPEG, `Cache-Control: no-store`). `404` se o Vision Monitor não estiver rodando; `503` se o frame estiver desatualizado (>2 s).
+  - `GET /stream` — **stream MJPEG** (`multipart/x-mixed-replace`) para embutir ao vivo em site/APK: `<img src="http://<host>:8000/stream">`.
+  - `GET /diagnostics` / `GET /diagnostics/latest` / `GET /diagnostics/stats` / `POST /diagnostics/analyze` — laudos da IA (requer login JWT).
+  - `POST /auth/register` / `POST /auth/login` / `GET /auth/me` — autenticação JWT para site logável e APK.
+  - `GET /health` — health check.
+
+> **Nota de segurança:** `/snapshot` e `/stream` são públicos por design (câmeras IP expostas costumam ser públicas; tags `<img>` não enviam headers `Authorization`). Em produção, proteja por rede/VLAN, firewall ou reverse proxy com autenticação.
 - Notificações assíncronas via **Webhook Discord/Slack** ou **Telegram Bot** com cooldown (60 s para ALERTA, imediato para CRITICO).
 - Banco SQLite via SQLAlchemy ORM.
 
@@ -95,6 +103,7 @@ See `README.md` para passo a passo.
 - Painel visual de status: banners amarelo/verde/vermelho pulsante.
 - Gráfico de linha Plotly em tempo real da telemetria com linhas tracejadas nos thresholds.
 - Tabela de ocorrências recentes com miniaturas de frames (base64).
+- **auto-refresh** de 2 s com o frame da câmera ao vivo (`/snapshot`) no painel principal e card de diagnóstico IA na barra lateral.
 - Controles: PARADA DE EMERGÊNCIA MANUAL, RESET DO SISTEMA, exportar CSV.
 - Exportação via `requests` para o endpoint `/export/csv`.
 
@@ -285,6 +294,23 @@ curl -X POST "http://localhost:8000/diagnostics/analyze?status_snapshot=CRITICO"
 - Se a contagem de erros na janela atingir o limite, dispara análise automática e log `BURST de erros detectado`.
 
 > **Verdade honesta:** nenhuma API de LLM é literalmente "ilimitada e grátis"; o provider `local` é a única opção ilimitada/gratuita permanente. Gemini/OpenRouter têm tiers grátis generosos, mas com limites.
+
+---
+
+## 6.2 Vídeo ao vivo para o site logável / APK
+
+Com o Vision Monitor rodando localmente (`./start_all.sh webcam` na sua máquina), o frame da câmera fica disponível na rede:
+
+```html
+<!-- Embutir direto em qualquer página do seu site -->
+<img src="http://192.168.1.10:8000/stream" alt="Câmera ao vivo" />
+<!-- ou capturar frames individuais -->
+<img src="http://192.168.1.10:8000/snapshot" alt="Frame atual" />
+```
+
+O endpoint `/stream` devolve MJPEG (`multipart/x-mixed-replace`), compatível com browsers, VLC e players de MJPEG em Android/iOS. Para o APK (Flutter/React Native), use um componente de `Image`/`VideoView` apontando para `/stream`, ou faça polling de `/snapshot` a cada 500 ms.
+
+> Troque `192.168.1.10` pelo IP da máquina que está rodando o Vision Monitor. Garanta que a máquina e o cliente estejam na mesma rede, ou exponha a API com um reverse proxy (nginx + TLS + autenticação).
 
 ---
 

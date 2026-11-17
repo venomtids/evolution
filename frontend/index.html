@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EVO·VISION — Manutenção Preditiva Industrial</title>
+  <meta name="description" content="Painel operacional de manutenção preditiva e segurança industrial: telemetria de vibração em tempo real, visão computacional, E-Stop e diagnóstico por IA." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="status-normal">
+
+  <!-- ══════════ TOPBAR ══════════ -->
+  <header class="topbar">
+    <div class="topbar__brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M16 2 28 10v12L16 30 4 22V10L16 2z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M16 9.5 22.5 13.2v7.6L16 24.5 9.5 20.8v-7.6L16 9.5z" fill="currentColor" opacity="0.9"/>
+      </svg>
+      <div class="brand-text">
+        <strong>EVO·VISION</strong>
+        <span>Manutenção Preditiva &amp; Segurança Industrial</span>
+      </div>
+    </div>
+
+    <div class="topbar__status">
+      <span class="led" id="apiLed" aria-hidden="true"></span>
+      <span class="topbar__api" id="apiState">CONECTANDO…</span>
+    </div>
+
+    <div class="topbar__meta">
+      <div class="meta-block">
+        <span class="meta-label">RELÓGIO</span>
+        <span class="meta-value" id="clock">--:--:--</span>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">ESP32</span>
+        <span class="meta-value" id="esp32State">—</span>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">OPERADOR</span>
+        <span class="meta-value" id="operatorName">ANÔNIMO</span>
+      </div>
+      <button class="btn btn--ghost btn--sm" id="loginBtn">ENTRAR</button>
+    </div>
+  </header>
+
+  <!-- ══════════ STATUS BANNER ══════════ -->
+  <section class="status-banner" id="statusBanner" role="status" aria-live="polite">
+    <div class="status-banner__left">
+      <span class="status-orb" id="statusOrb" aria-hidden="true"></span>
+      <div>
+        <div class="status-word" id="statusWord">NORMAL</div>
+        <div class="status-hint" id="statusHint">Máquina operando dentro dos parâmetros.</div>
+      </div>
+    </div>
+    <div class="status-banner__right">
+      <div class="big-metric">
+        <span class="big-metric__label">VIBRAÇÃO</span>
+        <span class="big-metric__value" id="bigValue">0.00</span>
+        <span class="big-metric__unit">índice</span>
+      </div>
+      <div class="big-metric">
+        <span class="big-metric__label">EVENTOS 24H</span>
+        <span class="big-metric__value" id="events24h">0</span>
+        <span class="big-metric__unit">registros</span>
+      </div>
+      <div class="big-metric">
+        <span class="big-metric__label">ÚLTIMA ATUALIZAÇÃO</span>
+        <span class="big-metric__value big-metric__value--sm" id="lastUpdate">—</span>
+        <span class="big-metric__unit">hora local</span>
+      </div>
+    </div>
+  </section>
+
+  <main class="grid">
+
+    <!-- ══════════ CÂMERA AO VIVO ══════════ -->
+    <section class="panel panel--camera area-camera">
+      <div class="panel__head">
+        <h2 class="panel__title">CÂMERA AO VIVO</h2>
+        <span class="tag tag--live" id="camTag">OFFLINE</span>
+      </div>
+      <div class="camera-frame">
+        <video id="localVideo" playsinline muted autoplay class="camera-media" hidden></video>
+        <img id="mjpegView" class="camera-media" alt="Stream da câmera IP" hidden />
+        <div class="camera-empty" id="cameraEmpty">
+          <svg viewBox="0 0 48 48" class="camera-empty__icon" aria-hidden="true">
+            <rect x="4" y="12" width="28" height="24" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/>
+            <path d="M32 20l12-7v22l-12-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+            <line x1="10" y1="40" x2="38" y2="8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+          <p>Nenhuma câmera conectada</p>
+          <small>Conecte a webcam local ou um stream MJPEG/HTTP de câmera IP.</small>
+        </div>
+        <div class="camera-hud" id="cameraHud" hidden>
+          <span id="hudLabel">CAM 01 · LIVE</span>
+          <span id="hudTime">--:--:--</span>
+        </div>
+      </div>
+      <div class="camera-controls">
+        <div class="seg" role="group" aria-label="Fonte da câmera">
+          <button class="seg__btn is-active" data-cam-tab="local">WEB CAM</button>
+          <button class="seg__btn" data-cam-tab="ip">CÂMERA IP</button>
+        </div>
+        <div class="cam-panel" id="camPanelLocal">
+          <button class="btn btn--primary" id="connectCamBtn">CONECTAR CÂMERA</button>
+          <button class="btn btn--ghost" id="disconnectCamBtn" hidden>DESCONECTAR</button>
+        </div>
+        <div class="cam-panel" id="camPanelIp" hidden>
+          <input type="text" class="field" id="mjpegUrl" placeholder="http://192.168.1.50:8081/video" autocomplete="off" spellcheck="false" />
+          <button class="btn btn--primary" id="loadMjpegBtn">CARREGAR</button>
+        </div>
+        <p class="hint" id="camHint">A câmera roda no navegador — nenhum vídeo sai desta máquina.</p>
+      </div>
+    </section>
+
+    <!-- ══════════ TELEMETRIA ══════════ -->
+    <section class="panel panel--chart area-chart">
+      <div class="panel__head">
+        <h2 class="panel__title">TELEMETRIA · ÍNDICE DE VIBRAÇÃO</h2>
+        <div class="legend">
+          <span class="legend__item"><i class="swatch swatch--line"></i>VIBRAÇÃO</span>
+          <span class="legend__item"><i class="swatch swatch--alert"></i>ALERTA 1.8</span>
+          <span class="legend__item"><i class="swatch swatch--crit"></i>CRITICO 3.5</span>
+          <span class="poll-chip" id="pollChip">POLL 2s</span>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="telemetryChart" aria-label="Gráfico de vibração em tempo real"></canvas>
+        <div class="chart-empty" id="chartEmpty" hidden>Aguardando pontos de telemetria…</div>
+      </div>
+    </section>
+
+    <!-- ══════════ E-STOP / RESET ══════════ -->
+    <section class="panel panel--estop area-estop">
+      <div class="panel__head">
+        <h2 class="panel__title">CONTROLE DE SEGURANÇA</h2>
+        <span class="tag tag--safe">FAIL-SAFE</span>
+      </div>
+      <button class="estop" id="estopBtn" aria-label="Parada de emergência manual">
+        <span class="estop__ring"></span>
+        <span class="estop__cap">
+          <span class="estop__label">PARADA DE<br>EMERGÊNCIA</span>
+        </span>
+      </button>
+      <button class="btn btn--warning btn--block" id="resetBtn">RESET DO SISTEMA</button>
+      <p class="hint">E-Stop manual desliga o relé via ESP32. O latch só libera por reset físico ou por este botão.</p>
+    </section>
+
+    <!-- ══════════ OCORRÊNCIAS ══════════ -->
+    <section class="panel panel--events area-events">
+      <div class="panel__head">
+        <h2 class="panel__title">ÚLTIMAS OCORRÊNCIAS</h2>
+        <div class="events-actions">
+          <select class="field field--sm" id="eventFilter" aria-label="Filtrar por status">
+            <option value="">TODOS</option>
+            <option value="NORMAL">NORMAL</option>
+            <option value="ALERTA">ALERTA</option>
+            <option value="CRITICO">CRITICO</option>
+          </select>
+          <button class="btn btn--ghost btn--sm" id="exportCsvBtn">EXPORTAR CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="events-table">
+          <thead>
+            <tr><th>HORA</th><th>STATUS</th><th>ÍNDICE</th><th>ORIGEM</th><th>FRAME</th></tr>
+          </thead>
+          <tbody id="eventsBody"><tr><td colspan="5" class="table-empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ══════════ DIAGNÓSTICO IA ══════════ -->
+    <section class="panel panel--ai area-ai">
+      <div class="panel__head">
+        <h2 class="panel__title">DIAGNÓSTICO IA</h2>
+        <span class="tag tag--ai" id="aiProviderTag">LOCAL</span>
+      </div>
+      <div class="ai-locked" id="aiLocked">
+        <svg viewBox="0 0 24 24" class="ai-locked__icon" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        <p>Laudo de IA restrito a operadores autenticados.</p>
+        <button class="btn btn--primary" id="aiUnlockBtn">ENTRAR PARA VER</button>
+      </div>
+      <div class="ai-body" id="aiBody" hidden>
+        <div class="ai-stats">
+          <div class="ai-stat"><span class="ai-stat__num" id="aiErrors">0</span><span class="ai-stat__label">ERROS NA JANELA (5 MIN)</span></div>
+          <div class="ai-stat"><span class="ai-stat__num" id="aiLimit">5</span><span class="ai-stat__label">LIMITE DE BURST</span></div>
+        </div>
+        <div class="ai-report" id="aiReport">
+          <div class="ai-report__row"><span class="ai-sev" id="aiSev">—</span><span class="ai-conf" id="aiConf">—</span></div>
+          <p class="ai-diag" id="aiDiag">Sem laudo registrado ainda.</p>
+          <dl class="ai-details">
+            <dt>CAUSA PROVÁVEL</dt><dd id="aiCause">—</dd>
+            <dt>RECOMENDAÇÃO</dt><dd id="aiRec">—</dd>
+          </dl>
+        </div>
+        <button class="btn btn--ghost btn--block" id="forceAnalysisBtn">FORÇAR ANÁLISE</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══════════ MODAL DE CONFIRMAÇÃO (E-STOP / RESET) ══════════ -->
+  <div class="modal-backdrop" id="confirmModal" hidden role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="modal">
+      <h3 class="modal__title" id="confirmTitle">CONFIRMAR AÇÃO</h3>
+      <p class="modal__text" id="confirmText">Tem certeza?</p>
+      <div class="modal__actions">
+        <button class="btn btn--ghost" id="confirmCancel">CANCELAR</button>
+        <button class="btn btn--danger" id="confirmOk">CONFIRMAR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ MODAL DE LOGIN ══════════ -->
+  <div class="modal-backdrop" id="loginModal" hidden role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <form class="modal" id="loginForm">
+      <h3 class="modal__title" id="loginTitle">ACESSO DO OPERADOR</h3>
+      <p class="modal__text">Autentique-se para liberar o diagnóstico IA e as ações de segurança.</p>
+      <label class="field-label" for="loginUser">USUÁRIO</label>
+      <input class="field" id="loginUser" autocomplete="username" required />
+      <label class="field-label" for="loginPass">SENHA</label>
+      <input class="field" id="loginPass" type="password" autocomplete="current-password" required />
+      <p class="login-error" id="loginError" hidden></p>
+      <div class="modal__actions">
+        <button type="button" class="btn btn--ghost" id="loginCancel">CANCELAR</button>
+        <button type="submit" class="btn btn--primary">ENTRAR</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

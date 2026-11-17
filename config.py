@@ -180,11 +180,11 @@ class Config:
 
     @property
     def CAPTURES_DIR(self) -> str:
-        return os.getenv("CAPTURES_DIR", "evolution/captures")
+        return os.getenv("CAPTURES_DIR", "captures")
 
     @property
     def LOGS_DIR(self) -> str:
-        return os.getenv("LOGS_DIR", "evolution/logs")
+        return os.getenv("LOGS_DIR", "logs")
 
     # ===========================================================================
     # AUTENTICAÇÃO JWT (site logável + APK)

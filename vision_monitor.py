@@ -39,6 +39,14 @@ CAPTURES_DIR = Path(config.CAPTURES_DIR)
 LOGS_DIR = Path(config.LOGS_DIR)
 
 # ---------------------------------------------------------------------------
+# Diretórios (garantir Path + criação antes do logging)
+# ---------------------------------------------------------------------------
+CAPTURES_DIR = Path(config.CAPTURES_DIR)
+LOGS_DIR = Path(config.LOGS_DIR)
+CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 logging.basicConfig(
@@ -137,8 +145,10 @@ class FarnebackDetector:
         # Magnitude do fluxo
         mag = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
 
-        # Índice: média da magnitude (escala 0..~10 típico)
-        index = float(np.mean(mag))
+        # Índice robusto de vibração: percentil 99 da magnitude.
+        # Foca na região em movimento dominante (punha/mancais) e é
+        # insensível ao fundo estático e ao ruído de sensor.
+        index = float(np.percentile(mag, 99))
 
         # Atualiza baseline
         self.prev_gray = roi_gray
@@ -306,20 +316,21 @@ class MockCamera:
         # Fundo cinza
         img[:] = (40, 40, 40)
 
-        # Posição da peça
+        # Posição da peça (amplitudes calibradas para o Farnebäck:
+        # ~0.1 px/frame normal, ~2 px/frame alerta, ~4-6 px/frame crítico)
         pos = self.base_pos.copy()
         if self.mode == "normal":
             pos += np.array([np.sin(self.t * 0.5) * 2, np.cos(self.t * 0.3) * 2])
         elif self.mode == "alerta":
-            pos += np.array([np.sin(self.t * 2.0) * 15, np.cos(self.t * 1.5) * 15])
+            pos += np.array([np.sin(self.t * 9.0) * 10, np.cos(self.t * 8.0) * 10])
         elif self.mode == "critico":
             pos += np.array([
-                np.sin(self.t * 20.0) * 40 + np.random.normal(0, 8),
-                np.cos(self.t * 18.0) * 40 + np.random.normal(0, 8),
+                np.sin(self.t * 14.5) * 12 + np.random.normal(0, 3.0),
+                np.cos(self.t * 12.5) * 12 + np.random.normal(0, 3.0),
             ])
 
         # Desenha peça (círculo vermelho)
-        cv2.circle(img, (int(pos[0]), int(pos[1])), 25, (0, 0, 255), -1)
+        cv2.circle(img, (int(pos[0]), int(pos[1])), 40, (0, 0, 255), -1)
         # Linha de referência
         cv2.line(img, (0, self.height // 2), (self.width, self.height // 2), (100, 100, 100), 1)
 
@@ -368,10 +379,12 @@ class VisionMonitor:
         self.current_magnitude = 0.0
         self.fps = 0.0
         self.frame_count = 0
+        self.hud_enabled = config.SHOW_HUD
 
         # Captura
         self.cap: Optional[cv2.VideoCapture] = None
         self.mock: Optional[MockCamera] = None
+        self.mock_mode: str = "normal"  # modo da câmera simulada (normal|alerta|critico)
 
         # Controle
         self.running = False
@@ -386,7 +399,8 @@ class VisionMonitor:
     def _open_source(self):
         if self.source == "mock":
             self.mock = MockCamera()
-            logger.info("MockCamera iniciada (modo simulação).")
+            self.mock.set_mode(self.mock_mode)
+            logger.info(f"MockCamera iniciada (modo simulação: {self.mock.mode}).")
             return
         try:
             self.cap = cv2.VideoCapture(self.source)
@@ -435,7 +449,7 @@ class VisionMonitor:
                 continue
             self.detector.process(frame)
             self._render_hud(frame, calibrating=True)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            if self._safe_waitkey(1) == ord("q"):
                 return False
         logger.info("Calibração concluída. Baseline estabelecida.")
         return True
@@ -510,33 +524,52 @@ class VisionMonitor:
 
     # ---------- HUD ----------
     def _render_hud(self, frame: np.ndarray, calibrating: bool = False):
-        h, w = frame.shape[:2]
-        # ROI
-        if self.roi:
-            x, y, rw, rh = self.roi
-            cv2.rectangle(frame, (x, y), (x + rw, y + rh), (0, 255, 0), 2)
-            cv2.putText(frame, "ROI", (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        if not self.hud_enabled:
+            return
+        try:
+            h, w = frame.shape[:2]
+            # ROI
+            if self.roi:
+                x, y, rw, rh = self.roi
+                cv2.rectangle(frame, (x, y), (x + rw, y + rh), (0, 255, 0), 2)
+                cv2.putText(frame, "ROI", (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-        # Status color
-        color = {"NORMAL": (0, 255, 0), "ALERTA": (0, 255, 255), "CRITICO": (0, 0, 255)}[self.state]
+            # Status color
+            color = {"NORMAL": (0, 255, 0), "ALERTA": (0, 255, 255), "CRITICO": (0, 0, 255)}[self.state]
 
-        # Texto
-        lines = [
-            f"FPS: {self.fps:.1f}",
-            f"Magnitude: {self.current_magnitude:.3f}",
-            f"Status: {self.state}",
-            f"Alert Th: {self.alert_th:.2f} | Crit Th: {self.critical_th:.2f}",
-        ]
-        if calibrating:
-            lines.append("CALIBRANDO... aguarde")
+            # Texto
+            lines = [
+                f"FPS: {self.fps:.1f}",
+                f"Magnitude: {self.current_magnitude:.3f}",
+                f"Status: {self.state}",
+                f"Alert Th: {self.alert_th:.2f} | Crit Th: {self.critical_th:.2f}",
+            ]
+            if calibrating:
+                lines.append("CALIBRANDO... aguarde")
 
-        for i, line in enumerate(lines):
-            cv2.putText(frame, line, (10, 30 + i * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            for i, line in enumerate(lines):
+                cv2.putText(frame, line, (10, 30 + i * 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-        # Barra de status no topo
-        cv2.rectangle(frame, (0, 0), (w, 5), color, -1)
+            # Barra de status no topo
+            cv2.rectangle(frame, (0, 0), (w, 5), color, -1)
 
-        cv2.imshow("Vision Monitor - Industrial E-Stop", frame)
+            cv2.imshow("Vision Monitor - Industrial E-Stop", frame)
+        except cv2.error as e:
+            # Ambiente headless (ex: Codespaces): desativa HUD
+            logger.warning(f"HUD indisponível (ambiente headless?): {e}. Desativando HUD.")
+            self.hud_enabled = False
+            return
+
+    # ---------- Teclado (tolerante a headless) ----------
+    def _safe_waitkey(self, delay_ms: int = 1) -> int:
+        try:
+            key = cv2.waitKey(delay_ms)
+            if key == -1:
+                return -1
+            return key & 0xFF
+        except cv2.error:
+            # Headless: sem janela e sem teclado
+            return -1
 
     # ---------- FPS ----------
     def _update_fps(self):
@@ -598,7 +631,7 @@ class VisionMonitor:
             self._render_hud(frame)
 
             # FPS control
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            if self._safe_waitkey(1) == ord("q"):
                 break
 
             # Alvo de FPS
@@ -615,7 +648,10 @@ class VisionMonitor:
             self.cap.release()
         if self.mock:
             self.mock.release()
-        cv2.destroyAllWindows()
+        try:
+            cv2.destroyAllWindows()
+        except cv2.error:
+            logger.info("destroyAllWindows ignorado (ambiente headless).")
         logger.info("VisionMonitor parado.")
 
 
@@ -634,8 +670,7 @@ if __name__ == "__main__":
     monitor = VisionMonitor()
     if args.mock:
         monitor.source = "mock"
-        monitor._open_source()
-        monitor.mock.set_mode(args.mode)
+        monitor.mock_mode = args.mode
         logger.info(f"Mock camera em modo: {args.mode}")
     try:
         monitor.start()

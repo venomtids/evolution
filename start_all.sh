@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # start_all.sh — sobe API + Dashboard + Vision Monitor (modo mock ou webcam)
 # Uso:
-#   ./start_all.sh mock        # simula câmera (Codespaces / sem hardware)
-#   ./start_all.sh webcam      # usa a webcam local (roda na sua máquina)
-#   ./start_all.sh rtsp        # usa fonte RTSP configurada no .env
-#   ./start_all.sh stop        # para tudo
+#   ./start_all.sh mock [normal|alerta|critico]   # simula câmera (Codespaces / sem hardware)
+#   ./start_all.sh webcam                          # usa a webcam local (roda na sua máquina)
+#   ./start_all.sh rtsp                            # usa fonte RTSP configurada no .env
+#   ./start_all.sh stop                            # para tudo
+#
+# Exemplos:
+#   ./start_all.sh mock             # simulação padrão (normal)
+#   ./start_all.sh mock critico     # simula máquina em falha crítica
 
 set -e
 cd "$(dirname "$0")"
 
 MODE="${1:-mock}"
+MOCK_MODE="${2:-normal}"
 LOG_DIR="logs"
 mkdir -p "$LOG_DIR"
 
@@ -43,7 +48,7 @@ echo $! > "$LOG_DIR/dashboard.pid"
 echo "[3/3] Vision Monitor..."
 case "$MODE" in
   mock)
-    nohup python vision_monitor.py --mock --mode normal > "$LOG_DIR/vision.log" 2>&1 &
+    nohup python vision_monitor.py --mock --mode "$MOCK_MODE" > "$LOG_DIR/vision.log" 2>&1 &
     ;;
   webcam)
     nohup python vision_monitor.py > "$LOG_DIR/vision.log" 2>&1 &

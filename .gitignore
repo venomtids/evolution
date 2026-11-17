@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+evolution.db
+captures/
+logs/
+exports/
+nohup.out

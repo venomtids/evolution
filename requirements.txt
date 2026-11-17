@@ -1,0 +1,51 @@
+# ==============================================================================
+# requirements.txt - Versões compatíveis para o MVP Industrial
+# ==============================================================================
+
+# Backend API (FastAPI)
+fastapi==0.115.0
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# Autenticação JWT (site logável + APK)
+bcrypt==4.2.1
+PyJWT==2.10.1
+python-jose[cryptography]==3.3.0
+cryptography==43.0.1
+
+# SQLite + SQLAlchemy + async
+sqlalchemy==2.0.40
+aiosqlite==0.20.0
+asyncpg==0.29.0
+
+# Pydantic v2
+pydantic>=2.11.0
+
+# HTTP cliente assíncrono
+aiohttp==3.9.1
+websockets==13.0
+requests==2.32.3
+
+# Pandas (para telemetria e export CSV)
+pandas==2.2.2
+
+# Plotly (dashboard Streamlit)
+plotly==5.18.0
+
+# Streamlit Frontend
+streamlit==1.43.0
+
+# OpenCV (visão computacional) - headless para servidores
+opencv-python-headless==4.12.0.80
+
+# NumPy
+numpy==2.2.3
+
+# Webhook / Telegram
+python-telegram-bot==4.24.0
+
+# Logging
+structlog==23.2.0
+
+# Utilities
+python-dotenv==1.1.0

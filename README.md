@@ -5,19 +5,54 @@
 
 ---
 
+## ⚡ Início rápido no VS Code (computador local — recomendado)
+
+> O **Codespaces não tem acesso à sua webcam** nem à sua rede (ESP32). Para o teste real, rode na sua máquina:
+
+```bash
+git clone https://github.com/venomtids/evolution
+cd evolution
+```
+
+**Windows:** duplo clique em **`INICIAR.bat`** (ou no terminal do VS Code: `INICIAR.bat`)
+**Linux / macOS:** `chmod +x INICIAR.sh && ./INICIAR.sh`
+
+O script faz tudo: cria `.venv`, instala dependências, copia `.env`, troca para o OpenCV desktop (HUD), sobe **API + Dashboard + Vision Monitor na sua webcam** e abre o navegador.
+
+| Atalho | URL |
+|---|---|
+| 🌐 **Site ao vivo (HMI "EVO·VISION")** | http://localhost:8000/ |
+| 📊 **Dashboard Streamlit** | http://localhost:8501 |
+| 📚 API Docs | http://localhost:8000/docs |
+
+Login do site: `demo` / `demo1234` (ou registre o seu em `POST /auth/register`).
+
+> Sem webcam ou quer simular? Use `./start_all.sh mock [normal|alerta|critico]`.
+> Para parar tudo: `INICIAR` fecha as janelas (Windows) ou `./start_all.sh stop` (Linux/macOS).
+
+---
+
 ## 1. Estrutura de Diretórios
 
 ```
 evolution/
 ├── .env.example              # Template com todas as variáveis
+├── .gitignore
+├── INICIAR.bat               # ⚡ Setup + execução local (Windows/VS Code)
+├── INICIAR.sh                # ⚡ Setup + execução local (Linux/macOS)
+├── start_all.sh              # Orquestra API + Dashboard + Vision (mock|webcam|rtsp|stop)
+├── test_flow.sh              # Teste E2E (register → login → eventos → burst → laudo IA)
+├── train_ai.py               # CLI: treina a IA scikit-learn com os dados locais
 ├── config.py                 # Centralização de thresholds, IPs, URLs, ROI
 ├── vision_monitor.py         # Captura vídeo, ROI, detecção Farnebäck, estado
-├── diagnostic_ai.py          # Motor de diagnóstico por IA (Gemini/OpenRouter/local)
-├── api.py                    # Backend FastAPI (eventos, status, auth JWT, diagnóstico IA)
-├── dashboard.py              # Frontend Streamlit (auto-refresh, HUD, gráficos, IA)
+├── diagnostic_ai.py          # Motor de diagnóstico por IA (ml/gemini/openrouter/local)
+├── ml_model.py               # IA open-source treinada (IsolationForest + RandomForest)
+├── api.py                    # Backend FastAPI (eventos, status, JWT, IA, /ml/*, HMI estática)
+├── dashboard.py              # Frontend Streamlit (auto-refresh, HUD, gráficos, IA, treino)
 ├── esp32_controller.ino      # Firmware ESP32 (HTTP REST, fail-safe latch, LED vermelho)
-├── captures/                 # Arquivos de frames salvos (YYYYMMDD_HHMMSS.jpg/png)
-├── logs/                     # Logs do monitoramento (vision_*.log)
+├── frontend/                 # Site HMI "EVO·VISION" (HTML/CSS/JS, servido pela API na porta 8000)
+├── captures/                 # Frames de evidência (YYYYMMDD_HHMMSS.jpg) + latest.jpg
+├── logs/                     # Logs do monitoramento (vision_monitor.log, api.log...)
 └── requirements.txt          # Dependências
 ```
 
@@ -311,6 +346,48 @@ Com o Vision Monitor rodando localmente (`./start_all.sh webcam` na sua máquina
 O endpoint `/stream` devolve MJPEG (`multipart/x-mixed-replace`), compatível com browsers, VLC e players de MJPEG em Android/iOS. Para o APK (Flutter/React Native), use um componente de `Image`/`VideoView` apontando para `/stream`, ou faça polling de `/snapshot` a cada 500 ms.
 
 > Troque `192.168.1.10` pelo IP da máquina que está rodando o Vision Monitor. Garanta que a máquina e o cliente estejam na mesma rede, ou exponha a API com um reverse proxy (nginx + TLS + autenticação).
+
+---
+
+## 6.3 IA open-source treinada para a nossa situação
+
+Além da heurística local e dos provedores de nuvem, o projeto inclui uma **IA real treinada com os seus dados** (`ml_model.py`):
+
+| Componente | Biblioteca (BSD) | Papel |
+|---|---|---|
+| **IsolationForest** | scikit-learn | Detector de anomalias **não-supervisionado** — aprende o comportamento normal de vibração e isola padrões anormais |
+| **RandomForestClassifier** | scikit-learn | Classificador NORMAL/ALERTA/CRITICO treinado nos rótulos do histórico |
+
+Features por janela de 60 amostras do índice Farnebäck (p99 da magnitude):
+`mean, std, min, max, p90, p95, p99, range, iqr, delta_mean, alert_rate, critico_rate`.
+
+### Treinar
+```bash
+python train_ai.py                  # usa o histórico do SQLite local
+python train_ai.py --synthetic-only # bootstrap 100% sintético (instalação nova)
+python train_ai.py --limit 5000     # só os últimos N eventos
+```
+
+Ou pela API/dashboard (requer JWT):
+```bash
+curl -X POST "http://localhost:8000/ml/train?synthetic_bootstrap=true" \
+  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/ml/status -H "Authorization: Bearer $TOKEN"
+```
+
+O dashboard exibe um card **🧠 IA Treinada (open-source)** com métricas e o botão **Treinar IA agora**.
+
+### Ativar no laudo automático
+```bash
+# .env
+AI_PROVIDER=ml      # sem modelo treinado → fallback automático para a heurística local
+```
+
+### Notas honestas
+- Uma instalação nova tem zero histórico → o treino completa automaticamente com **dados sintéticos calibrados** (ou use `POST /ml/train` com `synthetic_bootstrap=false` para exigir dados reais).
+- O `.joblib` treinado fica em `models/` (ignorado pelo git) — cada máquina treina o seu modelo com os seus dados.
+- A acurácia reportada é sobre janelas do próprio treino; para validação honesta, separe um conjunto de teste ou reavalie após operar com dados reais.
+- Quanto mais dias de telemetria real você acumula, melhor o IsolationForest aprende o "normal" da sua máquina.
 
 ---
 

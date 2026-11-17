@@ -208,7 +208,8 @@ class Config:
 
     @property
     def AI_PROVIDER(self) -> str:
-        return os.getenv("AI_PROVIDER", "local")
+        # "ml" (open-source treinado) é o padrão; cai p/ "local" se não treinado
+        return os.getenv("AI_PROVIDER", "ml")
 
     @property
     def GEMINI_API_KEY(self) -> str:

@@ -91,7 +91,7 @@
             <line x1="10" y1="40" x2="38" y2="8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
           </svg>
           <p>Nenhuma câmera conectada</p>
-          <small>Conecte a webcam local ou um stream MJPEG/HTTP de câmera IP.</small>
+          <small>Conecte ao stream do Vision Monitor, à webcam local ou a um MJPEG/HTTP de câmera IP.</small>
         </div>
         <div class="camera-hud" id="cameraHud" hidden>
           <span id="hudLabel">CAM 01 · LIVE</span>
@@ -100,10 +100,15 @@
       </div>
       <div class="camera-controls">
         <div class="seg" role="group" aria-label="Fonte da câmera">
-          <button class="seg__btn is-active" data-cam-tab="local">WEB CAM</button>
+          <button class="seg__btn is-active" data-cam-tab="monitor">MONITOR</button>
+          <button class="seg__btn" data-cam-tab="local">WEB CAM</button>
           <button class="seg__btn" data-cam-tab="ip">CÂMERA IP</button>
         </div>
-        <div class="cam-panel" id="camPanelLocal">
+        <div class="cam-panel" id="camPanelMonitor">
+          <button class="btn btn--primary" id="connectMonitorBtn">CONECTAR AO MONITOR</button>
+          <button class="btn btn--ghost" id="disconnectMonitorBtn" hidden>DESCONECTAR</button>
+        </div>
+        <div class="cam-panel" id="camPanelLocal" hidden>
           <button class="btn btn--primary" id="connectCamBtn">CONECTAR CÂMERA</button>
           <button class="btn btn--ghost" id="disconnectCamBtn" hidden>DESCONECTAR</button>
         </div>

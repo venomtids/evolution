@@ -27,6 +27,7 @@ body{
     repeating-linear-gradient(0deg, transparent 0 3px, rgba(255,255,255,.012) 3px 4px);
   min-height:100vh;
 }
+[hidden]{display:none !important}
 ::selection{background:var(--amber);color:#111}
 
 /* ════════ TOPBAR ════════ */

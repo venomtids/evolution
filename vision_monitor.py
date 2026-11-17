@@ -390,7 +390,7 @@ class VisionMonitor:
         self.running = False
         self._last_frame_time = 0.0
         self._last_api_time = 0.0
-        self._api_interval = 1.0 / 10  # 10 Hz para API (não sobrecarregar)
+        self._api_interval = 1.0 / 4  # 4 Hz para API (telemetria suficiente para gráfico)
 
         # Threads
         self._executor = None

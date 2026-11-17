@@ -2,7 +2,10 @@ __pycache__/
 *.pyc
 .env
 evolution.db
+evolution.db-shm
+evolution.db-wal
 captures/
 logs/
 exports/
 nohup.out
+models/

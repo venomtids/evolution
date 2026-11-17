@@ -3,9 +3,10 @@ diagnostic_ai.py
 Motor de diagnóstico por IA para manutenção preditiva.
 
 Providers suportados (configuráveis via .env):
-  - gemini      : Google Gemini API (free tier generoso: Gemini 2.0 Flash)
-  - openrouter  : OpenRouter (modelos gratuitos, ex: deepseek/deepseek-r1:free)
-  - local       : Heurística local determinística (ILIMITADO, sem rede, fallback)
+  - ml         : IA aberta treinada (scikit-learn: IsolationForest + RandomForest)
+  - gemini     : Google Gemini API (free tier generoso: Gemini 2.0 Flash)
+  - openrouter : OpenRouter (modelos gratuitos, ex: deepseek/deepseek-r1:free)
+  - local      : Heurística local determinística (ILIMITADO, sem rede, fallback)
 
 Funcionalidades:
   - Analisa janela de eventos de telemetria (status, magnitude, timestamps).
@@ -300,6 +301,27 @@ class LocalHeuristicProvider(AIProvider):
         }
 
 
+class MLProvider(AIProvider):
+    """
+    IA aberta treinada para a nossa situação (scikit-learn, ver ml_model.py).
+    IsolationForest (anomalias não-supervisionadas) + RandomForest (rótulos
+    NORMAL/ALERTA/CRITICO). Requer python train_ai.py ou POST /ml/train.
+    Se o modelo não existir, levanta exceção → fallback ISO-10816.
+    """
+
+    name = "ml"
+
+    def diagnose(self, events, stats) -> Dict[str, Any]:
+        from ml_model import ml_engine
+        values = [float(e.get("value", 0) or 0) for e in events]
+        statuses = [e.get("status", "NORMAL") for e in events]
+        result = ml_engine.predict(values, statuses)
+        if not result.get("trained"):
+            raise RuntimeError(result.get("reason", "modelo não treinado"))
+        result["provider"] = self.name
+        return result
+
+
 # ===========================================================================
 # Motor principal
 # ===========================================================================
@@ -325,7 +347,9 @@ class DiagnosticEngine:
         if self._provider is not None:
             return self._provider
         provider_name = (config.AI_PROVIDER or "local").lower()
-        if provider_name == "gemini" and config.GEMINI_API_KEY:
+        if provider_name == "ml":
+            self._provider = MLProvider()
+        elif provider_name == "gemini" and config.GEMINI_API_KEY:
             self._provider = GeminiProvider()
         elif provider_name == "openrouter" and config.OPENROUTER_API_KEY:
             self._provider = OpenRouterProvider()
@@ -341,7 +365,9 @@ class DiagnosticEngine:
     def set_provider(self, name: str):
         """Força troca de provider em runtime (ex: teste)."""
         self._provider = None
-        if name == "gemini":
+        if name == "ml":
+            self._provider = MLProvider()
+        elif name == "gemini":
             self._provider = GeminiProvider()
         elif name == "openrouter":
             self._provider = OpenRouterProvider()

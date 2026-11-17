@@ -226,6 +226,65 @@ def render_ai_diagnosis():
         )
 
 
+@st.cache_data(ttl=REFRESH_SECONDS)
+def fetch_ml_status() -> dict:
+    """Metadados da IA treinada (IsolationForest + RandomForest)."""
+    if not API_TOKEN:
+        return {}
+    try:
+        resp = requests.get(
+            f"{API_BASE}:{config.API_PORT}/ml/status",
+            headers=_auth_headers(),
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(f"Erro ao buscar /ml/status: {e}")
+    return {}
+
+
+def render_ml_card():
+    """Card da IA open-source treinada (scikit-learn)."""
+    st.markdown("### 🧠 IA Treinada (open-source)")
+    status = fetch_ml_status()
+    if not status:
+        if not API_TOKEN:
+            st.info("Configure DASHBOARD_API_TOKEN para ver/acionar a IA treinada.")
+        return
+    if status.get("trained"):
+        cls = status.get("classifier", {})
+        acc = cls.get("train_accuracy")
+        col1, col2 = st.columns(2)
+        col1.metric("Janelas treinadas", status.get("n_windows", 0))
+        col2.metric("Acurácia RF", f"{acc:.0%}" if acc is not None else "—")
+        st.caption(
+            f"Classes: {', '.join(cls.get('classes', [])) or '—'} · "
+            f"IsolationForest (anomalias não-supervisionadas)\n\n"
+            f"Treino: {str(status.get('trained_at', ''))[:19]} · {status.get('train_seconds')}s"
+        )
+    else:
+        st.warning("Modelo ainda não treinado.")
+        if st.button("🧠 Treinar IA agora"):
+            with st.spinner("Treinando scikit-learn com o histórico local..."):
+                try:
+                    resp = requests.post(
+                        f"{API_BASE}:{config.API_PORT}/ml/train?synthetic_bootstrap=true",
+                        headers=_auth_headers(),
+                        timeout=300,
+                    )
+                    if resp.status_code == 200:
+                        st.success("IA treinada com sucesso!")
+                        st.cache_data.clear()
+                        fn = getattr(st, "rerun", None) or getattr(st, "experimental_rerun", None)
+                        if fn:
+                            fn()
+                    else:
+                        st.error(f"Falha no treino: HTTP {resp.status_code}")
+                except Exception as e:
+                    st.error(f"Erro ao treinar: {e}")
+
+
 def encode_image_to_base64(image_path: str) -> Optional[str]:
     """Codifica imagem para base64 (exibição em tabela)."""
     try:
@@ -564,6 +623,7 @@ def main_loop():
         st.markdown("### 📋 Últimas Ocorrências")
         render_recent_events(events)
         render_ai_diagnosis()
+        render_ml_card()
     
     # Verificar se precisa resetar estado baseado em E-Stop
     if current_status == "CRITICO":

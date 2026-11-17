@@ -4,7 +4,6 @@
 const REFRESH_MS = 2000;
 const ALERT_THRESHOLD = 1.8;
 const CRIT_THRESHOLD = 3.5;
-const Y_MAX = 4.5;
 const MAX_CHART_POINTS = 160;
 
 const $ = (id) => document.getElementById(id);
@@ -96,7 +95,10 @@ function drawChart(points) {
 
   const padL = 34, padR = 8, padT = 10, padB = 22;
   const iw = w - padL - padR, ih = h - padT - padB;
-  const yOf = (v) => padT + ih - (Math.min(v, Y_MAX) / Y_MAX) * ih;
+  const maxVal = points.length ? Math.max(...points.map((p) => Number(p.value) || 0)) : 0;
+  const yMax = Math.max(CRIT_THRESHOLD * 1.25, Math.ceil(maxVal * 1.15), 4);
+  const gridStep = yMax <= 5 ? 1 : yMax <= 10 ? 2 : 5;
+  const yOf = (v) => padT + ih - (Math.min(v, yMax) / yMax) * ih;
 
   // grid horizontal
   ctx.font = "9px ui-monospace, Menlo, Consolas, monospace";
@@ -104,7 +106,7 @@ function drawChart(points) {
   ctx.fillStyle = "#5f6f8c";
   ctx.lineWidth = 1;
   ctx.textAlign = "right";
-  for (let g = 0; g <= Y_MAX; g += 1) {
+  for (let g = 0; g <= yMax; g += gridStep) {
     const y = yOf(g);
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
     ctx.fillText(String(g), padL - 5, y + 3);
@@ -252,16 +254,32 @@ function setCameraUI(mode) {
   const live = mode !== null;
   $("cameraEmpty").hidden = live;
   camVideo.hidden = mode !== "local";
-  camImg.hidden = mode !== "ip";
+  camImg.hidden = !(mode === "ip" || mode === "monitor");
   $("cameraHud").hidden = !live;
   $("camTag").textContent = live ? "AO VIVO" : "OFFLINE";
   $("camTag").classList.toggle("on", live);
-  $("connectCamBtn").hidden = live && mode === "local";
-  $("disconnectCamBtn").hidden = !(live && mode === "local");
+  $("connectCamBtn").hidden = mode === "local";
+  $("disconnectCamBtn").hidden = mode !== "local";
+  $("connectMonitorBtn").hidden = mode === "monitor";
+  $("disconnectMonitorBtn").hidden = mode !== "monitor";
   $("camHint").textContent = live
-    ? (mode === "local" ? "Webcam local ativa — vídeo não sai desta máquina." : "Stream MJPEG carregado via <img>.")
+    ? (mode === "local" ? "Webcam local ativa — vídeo não sai desta máquina."
+      : mode === "monitor" ? "Stream MJPEG do Vision Monitor (/stream)."
+      : "Stream MJPEG carregado via <img>.")
     : "A câmera roda no navegador — nenhum vídeo sai desta máquina.";
 }
+
+$("connectMonitorBtn").addEventListener("click", () => {
+  camImg.onerror = () => { toast("Monitor sem sinal. O Vision Monitor está rodando?", true); setCameraUI(null); };
+  camImg.onload = () => toast("Conectado ao stream do monitor.");
+  $("hudLabel").textContent = "MONITOR · LIVE";
+  camImg.src = `/stream?t=${Date.now()}`;
+  setCameraUI("monitor");
+});
+$("disconnectMonitorBtn").addEventListener("click", () => {
+  camImg.removeAttribute("src");
+  setCameraUI(null);
+});
 
 async function connectLocalCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -304,6 +322,7 @@ document.querySelectorAll("[data-cam-tab]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const tab = btn.dataset.camTab;
     document.querySelectorAll("[data-cam-tab]").forEach((b) => b.classList.toggle("is-active", b === btn));
+    $("camPanelMonitor").hidden = tab !== "monitor";
     $("camPanelLocal").hidden = tab !== "local";
     $("camPanelIp").hidden = tab !== "ip";
   });

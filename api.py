@@ -33,7 +33,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, DateTime, Text, Index, select, func
+    create_engine, Column, Integer, String, Float, DateTime, Text, Index, select, func, event
 )
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.pool import StaticPool
@@ -54,15 +54,34 @@ from diagnostic_ai import diagnostic_engine, DIAGNOSIS_SCHEMA
 
 DATABASE_URL = config.DATABASE_URL
 
-# Engine SQLite com pool para uso assíncrono
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-    echo=False
+# Engine SQLite:
+# - Em produção/local (arquivo), use QueuePool com WAL + busy_timeout:
+#   permite leituras concorrentes com o escritor único (evita 500s sob carga de 10 Hz).
+# - Em memória (:memory:, testes), StaticPool é obrigatório.
+_is_memory = ":memory:" in DATABASE_URL
+_engine_kwargs = dict(
+    connect_args={"check_same_thread": False, "timeout": 5},
+    echo=False,
 )
+if _is_memory:
+    _engine_kwargs["poolclass"] = StaticPool
+else:
+    _engine_kwargs.update({"pool_size": 5, "max_overflow": 10})
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
+
+if not _is_memory:
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragma(dbapi_conn, _connection_record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
+
+# expire_on_commit=False: objetos não expiram após commit (evita SELECT implícito
+# pós-commit e falhas intermitentes em refresh sob concorrência).
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
 Base = declarative_base()
 
 
@@ -584,7 +603,11 @@ async def create_event(
     db_event = Event(**event.model_dump())
     db.add(db_event)
     db.commit()
-    db.refresh(db_event)
+    try:
+        db.refresh(db_event)
+    except Exception as e:
+        # Não-crítico: o objeto já tem os dados (expire_on_commit=False)
+        logger.warning(f"refresh do evento falhou (ignorado): {e}")
     
     # Notificação assíncrona
     background_tasks.add_task(notification_service.send_alert, event, event.frame_path)
@@ -642,7 +665,10 @@ async def create_event_with_upload(
     db_event = Event(**event_data.model_dump())
     db.add(db_event)
     db.commit()
-    db.refresh(db_event)
+    try:
+        db.refresh(db_event)
+    except Exception as e:
+        logger.warning(f"refresh do evento falhou (ignorado): {e}")
     
     # Notificação assíncrona
     background_tasks.add_task(notification_service.send_alert, event_data, str(filepath))
@@ -998,6 +1024,50 @@ async def force_analysis(
 
 
 # ===========================================================================
+# Endpoints de IA treinada (scikit-learn — open source)
+# ===========================================================================
+
+@app.get("/ml/status")
+async def ml_status(
+    user: "User" = Depends(get_current_user),
+):
+    """Metadados do modelo treinado (treinado? quando? acurácia? janelas?)."""
+    from ml_model import ml_engine
+    return ml_engine.status()
+
+
+@app.post("/ml/train")
+async def ml_train(
+    synthetic_bootstrap: bool = Query(True, description="Completa dados insuficientes com dados sintéticos calibrados"),
+    limit: int = Query(20000, ge=100, le=1000000),
+    db: Session = Depends(get_db),
+    user: "User" = Depends(get_current_user),
+):
+    """
+    Treina a IA open-source com o histórico do SQLite.
+    IsolationForest (não-supervisionado) + RandomForest (rótulos NORMAL/ALERTA/CRITICO).
+    Pode levar alguns segundos.
+    """
+    from ml_model import ml_engine
+    from sqlalchemy import select as _select
+    import asyncio as _asyncio
+
+    rows = db.execute(
+        _select(Event).order_by(Event.timestamp.asc()).limit(limit)
+    ).scalars().all()
+    events = [
+        {"timestamp": e.timestamp.isoformat(), "status": e.status, "value": e.value}
+        for e in rows
+    ]
+    logger.info(f"Treino ML solicitado por {user.username}: {len(events)} eventos reais")
+    # Roda treino síncrono fora do event loop (pode levar alguns segundos)
+    metrics = await _asyncio.to_thread(ml_engine.train, events, synthetic_bootstrap)
+    if not metrics.get("ok"):
+        raise HTTPException(400, f"Falha no treino: {metrics.get('reason')}")
+    return metrics
+
+
+# ===========================================================================
 # Endpoints de Autenticação (site logável + APK)
 # ===========================================================================
 
@@ -1017,7 +1087,10 @@ async def register_user(payload: UserRegister, db: Session = Depends(get_db)):
     )
     db.add(user)
     db.commit()
-    db.refresh(user)
+    try:
+        db.refresh(user)
+    except Exception as e:
+        logger.warning(f"refresh do usuário falhou (ignorado): {e}")
     return user
 
 

@@ -27,13 +27,13 @@ from typing import List, Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, DateTime, Text, Index, select, func, event, text
+    create_engine, Column, Integer, String, Float, DateTime, Text, Index, select, func, event, text, Boolean
 )
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.pool import StaticPool
@@ -119,12 +119,47 @@ class Event(Base):
 class SystemLog(Base):
     """Log de ações do sistema (E-Stop manual, reset, etc.)."""
     __tablename__ = "system_logs"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     action = Column(String(50), nullable=False)  # emergency_stop, reset, config_change
     details = Column(Text, nullable=True)
     user_id = Column(String(50), nullable=True)  # identificador do operador
+
+
+class DeviceStatus(Base):
+    """Estado do ESP32 físico que faz polling na API (relé de E-Stop na nuvem)."""
+    __tablename__ = "device_status"
+
+    device_id = Column(String(64), primary_key=True)
+    last_seen = Column(DateTime, nullable=False, default=datetime.utcnow)
+    temperature = Column(Float, nullable=True)
+    latched = Column(Boolean, nullable=True)
+    firmware = Column(String(32), nullable=True)
+    detail = Column(Text, nullable=True)
+
+
+class DeviceCommand(Base):
+    """Comandos enfileirados para o ESP32 (ele busca na próxima consulta)."""
+    __tablename__ = "device_commands"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(String(64), nullable=False, index=True)
+    action = Column(String(32), nullable=False)  # emergency_stop | reset
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    delivered_at = Column(DateTime, nullable=True)
+    acked_at = Column(DateTime, nullable=True)
+    result = Column(Text, nullable=True)
+
+
+class DeviceTemperature(Base):
+    """Histórico térmico reportado pelo ESP32 (no máx. 1 ponto por minuto)."""
+    __tablename__ = "device_temperature"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ts = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    device_id = Column(String(64), nullable=False, index=True)
+    temperature = Column(Float, nullable=False)
 
 
 class User(Base):
@@ -157,7 +192,17 @@ class Diagnostic(Base):
 
 
 # Criar tabelas
-Base.metadata.create_all(bind=engine)
+if _is_postgres:
+    # Serverless cold starts concorrentes podem rodar DDL ao mesmo tempo:
+    # serializa com advisory lock para nao colidir no pg_type (Neon).
+    with engine.begin() as _ddl_conn:
+        _ddl_conn.execute(text("SELECT pg_advisory_lock(72727272)"))
+        try:
+            Base.metadata.create_all(bind=_ddl_conn)
+        finally:
+            _ddl_conn.execute(text("SELECT pg_advisory_unlock(72727272)"))
+else:
+    Base.metadata.create_all(bind=engine)
 
 
 # ---------------------------------------------------------------------------
@@ -580,6 +625,69 @@ esp32_service = ESP32Service()
 
 
 # ===========================================================================
+# Relé de dispositivo (ESP32 fora da LAN) — comando enfileirado na nuvem
+# O ESP32 físico faz polling em /device/heartbeat (HTTPS de saída, sem portas
+# abertas na rede). Honestidade: o caminho de nuvem só existe quando
+# DEVICE_TOKEN está configurado E o dispositivo deul heartbeat nos últimos
+# DEVICE_RELAY_WINDOW_SECONDS. Sem isso, /manual-stop e /reset seguem 503.
+# ===========================================================================
+
+DEVICE_TOKEN = os.getenv("DEVICE_TOKEN", "").strip()
+DEVICE_RELAY_WINDOW = int(os.getenv("DEVICE_RELAY_WINDOW_SECONDS", "15"))
+
+
+class DeviceHeartbeatIn(BaseModel):
+    device_id: str = "esp32-01"
+    temperature: Optional[float] = None
+    latched: Optional[bool] = None
+    firmware: Optional[str] = None
+
+
+class DeviceAckIn(BaseModel):
+    device_id: str
+    command_id: int
+    result: Optional[str] = None
+
+
+def _device_fresh(db: Session, device_id: Optional[str] = None):
+    """Último heartbeat dentro da janela de frescor, ou None."""
+    q = select(DeviceStatus).where(
+        DeviceStatus.last_seen >= datetime.utcnow() - timedelta(seconds=DEVICE_RELAY_WINDOW)
+    )
+    if device_id:
+        q = q.where(DeviceStatus.device_id == device_id)
+    return db.execute(q.order_by(DeviceStatus.last_seen.desc()).limit(1)).scalar_one_or_none()
+
+
+def _device_auth(x_device_token: Optional[str]) -> None:
+    if not DEVICE_TOKEN:
+        raise HTTPException(503, "Relé de dispositivo desativado (DEVICE_TOKEN não configurado).")
+    if (x_device_token or "").strip() != DEVICE_TOKEN:
+        raise HTTPException(401, "Token de dispositivo inválido.")
+
+
+def _enqueue_device_command(db: Session, action: str, user_id: Optional[str], reason: Optional[str]):
+    dev = _device_fresh(db)
+    if dev is None:
+        return None
+    cmd = DeviceCommand(device_id=dev.device_id, action=action)
+    db.add(cmd)
+    db.add(SystemLog(
+        action=f"{action}_queued",
+        details=f"{action} por {user_id or 'operator'}: enfileirado na nuvem para {dev.device_id} ({reason or 'sem motivo'})",
+        user_id=user_id or "operator",
+    ))
+    db.commit()
+    db.refresh(cmd)
+    return {
+        "success": True,
+        "queued": True,
+        "command_id": cmd.id,
+        "message": "Comando enfileirado na nuvem — o ESP32 executa no próximo contato (~2s) e confirma. A máquina NÃO liga sozinha.",
+    }
+
+
+# ===========================================================================
 # Ciclo de Vida da Aplicação (Lifespan)
 # ===========================================================================
 
@@ -614,6 +722,72 @@ app.add_middleware(
 
 # Logger (definido ANTES de ser usado)
 logger = logging.getLogger(__name__)
+
+
+@app.post("/device/heartbeat")
+async def device_heartbeat(
+    body: DeviceHeartbeatIn,
+    x_device_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Contato periódico do ESP32 físico (2s típico): atualiza estado, registra
+    temperatura (1 ponto/min no máx.) e devolve comandos pendentes.
+    """
+    _device_auth(x_device_token)
+    now = datetime.utcnow()
+    row = db.get(DeviceStatus, body.device_id)
+    if row is None:
+        row = DeviceStatus(device_id=body.device_id, last_seen=now,
+                           temperature=body.temperature, latched=body.latched,
+                           firmware=body.firmware)
+        db.add(row)
+    else:
+        row.last_seen = now
+        if body.temperature is not None:
+            row.temperature = body.temperature
+        if body.latched is not None:
+            row.latched = body.latched
+        if body.firmware:
+            row.firmware = body.firmware
+    if body.temperature is not None:
+        last_t = db.execute(
+            select(func.max(DeviceTemperature.ts)).where(DeviceTemperature.device_id == body.device_id)
+        ).scalar()
+        if last_t is None or (now - last_t) >= timedelta(seconds=60):
+            db.add(DeviceTemperature(ts=now, device_id=body.device_id, temperature=body.temperature))
+    pending = db.execute(
+        select(DeviceCommand)
+        .where(DeviceCommand.device_id == body.device_id, DeviceCommand.delivered_at.is_(None))
+        .order_by(DeviceCommand.id)
+    ).scalars().all()
+    commands = [{"id": c.id, "action": c.action} for c in pending]
+    for c in pending:
+        c.delivered_at = now
+    db.commit()
+    return {"ok": True, "server_time": now.isoformat(), "commands": commands}
+
+
+@app.post("/device/ack")
+async def device_ack(
+    body: DeviceAckIn,
+    x_device_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """ESP32 confirma execução de um comando enfileirado (fechando o ciclo honesto)."""
+    _device_auth(x_device_token)
+    cmd = db.get(DeviceCommand, body.command_id)
+    if cmd is None or cmd.device_id != body.device_id:
+        raise HTTPException(404, "Comando não encontrado para este dispositivo.")
+    cmd.acked_at = datetime.utcnow()
+    cmd.result = (body.result or "")[:500]
+    db.add(SystemLog(
+        action=f"{cmd.action}_ack",
+        details=f"ACK do ESP32 (cmd {cmd.id}): {cmd.result or 'ok'}",
+        user_id="esp32",
+    ))
+    db.commit()
+    return {"ok": True}
 
 
 # ===========================================================================
@@ -814,14 +988,27 @@ async def get_temperature(db: Session = Depends(get_db)):
         .order_by(Event.timestamp.desc())
         .limit(1)
     ).scalar_one_or_none()
+    dev = db.execute(
+        select(DeviceStatus)
+        .where(DeviceStatus.temperature.isnot(None))
+        .order_by(DeviceStatus.last_seen.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    # Fonte mais recente vence (evento com leitura térmica vs. ESP32 pela nuvem)
+    if dev is not None and (row is None or dev.last_seen >= row.timestamp):
+        temperature, source, ts = dev.temperature, "device", dev.last_seen
+    elif row is not None:
+        temperature, source, ts = row.temperature, config.TEMP_SOURCE, row.timestamp
+    else:
+        temperature, source, ts = 0.0, config.TEMP_SOURCE, datetime.utcnow()
     return {
-        "temperature": row.temperature if row else 0.0,
-        "source": config.TEMP_SOURCE,
+        "temperature": temperature,
+        "source": source,
         "thresholds": {
             "alerta": config.TEMP_MAX_ALERTA,
             "critico": config.TEMP_MAX_CRITICO,
         },
-        "timestamp": (row.timestamp if row else datetime.utcnow()).isoformat(),
+        "timestamp": ts.isoformat(),
     }
 
 
@@ -837,16 +1024,18 @@ async def get_temperature_history(
         .order_by(Event.timestamp.desc())
         .limit(limit)
     ).scalars().all()
-    rows = list(reversed(rows))
+    dev_rows = db.execute(
+        select(DeviceTemperature)
+        .order_by(DeviceTemperature.ts.desc())
+        .limit(limit)
+    ).scalars().all()
+    # Mescla eventos térmicos + leituras do ESP32 pela nuvem, ordenado por tempo
+    merged = [{"timestamp": r.timestamp.isoformat(), "temperature": r.temperature, "status": r.status} for r in rows]
+    merged += [{"timestamp": r.ts.isoformat(), "temperature": r.temperature, "status": "NORMAL"} for r in dev_rows]
+    merged.sort(key=lambda p: p["timestamp"])
+    points = merged[-limit:]
     return {
-        "points": [
-            {
-                "timestamp": r.timestamp.isoformat(),
-                "temperature": r.temperature,
-                "status": r.status,
-            }
-            for r in rows
-        ]
+        "points": points
     }
 
 
@@ -874,6 +1063,10 @@ async def manual_emergency_stop(
     db.add(log)
 
     if not esp_ok:
+        # Relé pela nuvem: ESP32 físico que faz polling no /device/heartbeat?
+        queued = _enqueue_device_command(db, "emergency_stop", request.user_id, request.reason)
+        if queued is not None:
+            return queued
         db.commit()
         raise HTTPException(
             503,
@@ -915,6 +1108,9 @@ async def reset_system(
     db.add(log)
 
     if not esp_ok:
+        queued = _enqueue_device_command(db, "reset", request.user_id, request.reason)
+        if queued is not None:
+            return queued
         db.commit()
         raise HTTPException(
             503,
@@ -993,23 +1189,69 @@ async def export_csv(
 SNAPSHOT_PATH = Path(config.CAPTURES_DIR) / "latest.jpg"
 SNAPSHOT_MAX_AGE_SECONDS = 2.0  # considera "sem sinal" se o último frame for mais velho
 
+
+async def _snapshot_from_bucket():
+    """
+    Fallback de nuvem: quando não há latest.jpg local (deploy serverless, sem
+    Vision Monitor neste processo), devolve um redirect 302 para uma URL
+    pré-assinada do objeto snapshots/latest.jpg no Neon Object Storage.
+    Retorna None quando o bucket não está configurado ou o objeto não existe.
+    """
+    endpoint = os.getenv("AWS_ENDPOINT_URL_S3")
+    ak = os.getenv("AWS_ACCESS_KEY_ID")
+    sk = os.getenv("AWS_SECRET_ACCESS_KEY")
+    bucket = os.getenv("NEON_STORAGE_BUCKET", "assets")
+    key = "snapshots/latest.jpg"
+    if not (endpoint and ak and sk):
+        return None
+    try:
+        import boto3
+        from botocore.config import Config
+
+        client = boto3.client(
+            "s3", endpoint_url=endpoint, region_name=os.getenv("AWS_REGION", "us-east-1"),
+            aws_access_key_id=ak, aws_secret_access_key=sk,
+            config=Config(signature_version="s3v4"),
+        )
+        head = client.head_object(Bucket=bucket, Key=key)
+        age = time.time() - head["LastModified"].timestamp()
+        if age > 30:
+            raise HTTPException(503, f"Frame da nuvem desatualizado ({age:.0f}s). O edge que publica snapshots está offline?")
+        url = client.generate_presigned_url(
+            "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=30
+        )
+        return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store, max-age=0"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.debug(f"snapshot via bucket indisponível: {e}")
+        return None
+
+
 @app.get("/snapshot")
 async def get_snapshot():
     """
     Último frame capturado pelo Vision Monitor (JPEG).
+    Local: arquivo captures/latest.jpg. Nuvem (serverless): redirect 302 para
+    URL pré-assinada do bucket Neon (edge publica a cada ~2s via storage.py).
     Público por design (câmeras IP / <img> do site logável não enviam headers).
-    Em produção, proteja via rede/reverse proxy.
     """
-    if not SNAPSHOT_PATH.exists():
-        raise HTTPException(404, "Nenhum frame recente. O Vision Monitor está rodando?")
-    age = time.time() - SNAPSHOT_PATH.stat().st_mtime
-    if age > SNAPSHOT_MAX_AGE_SECONDS:
+    if SNAPSHOT_PATH.exists():
+        age = time.time() - SNAPSHOT_PATH.stat().st_mtime
+        if age <= SNAPSHOT_MAX_AGE_SECONDS:
+            return FileResponse(
+                SNAPSHOT_PATH,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "no-store, max-age=0"},
+            )
+        cloud = await _snapshot_from_bucket()
+        if cloud is not None:
+            return cloud
         raise HTTPException(503, f"Frame desatualizado ({age:.1f}s). Verifique o Vision Monitor.")
-    return FileResponse(
-        SNAPSHOT_PATH,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    cloud = await _snapshot_from_bucket()
+    if cloud is not None:
+        return cloud
+    raise HTTPException(404, "Nenhum frame recente. O Vision Monitor (edge) está publicando no bucket?")
 
 
 @app.get("/stream")

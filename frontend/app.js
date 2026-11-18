@@ -310,6 +310,28 @@ function setCameraUI(mode) {
     : "A câmera roda no navegador — nenhum vídeo sai desta máquina.";
 }
 
+let snapshotPollTimer = null;
+function stopSnapshotPolling() {
+  if (snapshotPollTimer) { clearInterval(snapshotPollTimer); snapshotPollTimer = null; }
+}
+function startSnapshotPolling() {
+  // Nuvem sem MJPEG: frame-a-frame via /snapshot (redirect para o bucket Neon).
+  if (snapshotPollTimer) clearInterval(snapshotPollTimer);
+  camImg.onerror = () => {
+    stopSnapshotPolling();
+    toast("Monitor sem sinal (nem MJPEG nem snapshot da nuvem). Edge offline?", true);
+    setCameraUI(null);
+  };
+  camImg.onload = () => {};
+  const tick = () => { camImg.src = `/snapshot?t=${Date.now()}`; };
+  tick();
+  snapshotPollTimer = setInterval(tick, 2500);
+  $("hudLabel").textContent = "MONITOR · NUVEM";
+  $("camHint").textContent = "Frame a frame via /snapshot (nuvem, ~2s).";
+  setCameraUI("monitor");
+  toast("Stream MJPEG indisponível — alternando para snapshots da nuvem.");
+}
+
 $("connectMonitorBtn").addEventListener("click", () => {
   if (window.EVO_DEMO?.isActive()) {
     const canvas = $("demoFeed");
@@ -327,13 +349,14 @@ $("connectMonitorBtn").addEventListener("click", () => {
       toast("API indisponível — feed de demonstração ativado.");
       return;
     }
-    toast("Monitor sem sinal. O Vision Monitor está rodando?", true); setCameraUI(null);
+    startSnapshotPolling();
   };
   camImg.onload = () => toast("Conectado ao stream do monitor.");
   camImg.src = `/stream?t=${Date.now()}`;
   setCameraUI("monitor");
 });
 $("disconnectMonitorBtn").addEventListener("click", () => {
+  stopSnapshotPolling();
   if (window.EVO_DEMO) window.EVO_DEMO.disconnectDemoMonitor();
   camImg.removeAttribute("src");
   $("demoFeed").hidden = true;
@@ -540,7 +563,8 @@ async function callSafetyEndpoint(path, okMsg) {
   try {
     const resp = await api(path, { method: "POST", body: { user_id: state.user?.username || "operator", reason: "Ação via painel web" } });
     if (resp.ok) {
-      toast(window.EVO_DEMO?.isActive?.() ? "MODO DEMO: ação simulada (nada foi acionado de verdade)." : okMsg);
+      const d = await resp.json().catch(() => null);
+      toast(window.EVO_DEMO?.isActive?.() ? "MODO DEMO: ação simulada (nada foi acionado de verdade)." : (d?.message || okMsg));
     } else {
       let msg = `Falha (${resp.status}).`;
       try {

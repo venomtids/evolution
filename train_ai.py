@@ -61,7 +61,7 @@ def main():
     events = [] if args.synthetic_only else load_events_from_db(args.limit)
     print(f"Eventos reais carregados: {len(events)}")
 
-    metrics = ml_engine.train(events, synthetic_bootstrap=not args.no_bootstrap)
+    metrics = ml_engine.train(events, use_synthetic=not args.no_bootstrap)
     print()
     print("=" * 60)
     if not metrics.get("ok"):

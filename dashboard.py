@@ -56,7 +56,14 @@ from config import config
 PAGE_TITLE = "Dashboard Operacional - Manutenção Preditiva"
 REFRESH_SECONDS = config.DASHBOARD_REFRESH_SECONDS if hasattr(config, 'DASHBOARD_REFRESH_SECONDS') else 2
 MAX_TELEMETRY_POINTS = config.MAX_TELEMETRY_POINTS if hasattr(config, 'MAX_TELEMETRY_POINTS') else 300
-API_BASE = config.API_HOST if config.API_HOST != "0.0.0.0" else "http://127.0.0.1"
+# override para Streamlit Community Cloud / nuvem: API_BASE_URL=https://seu-app.vercel.app
+_API_BASE_ENV = os.getenv("API_BASE_URL", "").rstrip("/")
+if _API_BASE_ENV:
+    API_BASE = _API_BASE_ENV
+    API_PORT_SUFFIX = ""
+else:
+    API_BASE = config.API_HOST if config.API_HOST != "0.0.0.0" else "http://127.0.0.1"
+    API_PORT_SUFFIX = f":{config.API_PORT}"
 
 # ---------------------------------------------------------
 # Estado da Sessão Streamlit
@@ -91,7 +98,7 @@ def fetch_events_cached(limit: int = 100, status_filter: Optional[str] = None) -
     """Busca eventos do backend API com cache."""
     try:
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/events?page=1&page_size={limit}",
+            f"{API_BASE}{API_PORT_SUFFIX}/events?page=1&page_size={limit}",
             params={"status": status_filter} if status_filter else {},
             timeout=5
         )
@@ -107,7 +114,7 @@ def fetch_events_cached(limit: int = 100, status_filter: Optional[str] = None) -
 def fetch_status_cached() -> dict:
     """Busca status atual da API."""
     try:
-        resp = requests.get(f"{API_BASE}:{config.API_PORT}/status", timeout=5)
+        resp = requests.get(f"{API_BASE}{API_PORT_SUFFIX}/status", timeout=5)
         if resp.status_code == 200:
             return resp.json()
     except Exception as e:
@@ -120,7 +127,7 @@ def fetch_telemetry_cached(limit: int = 100) -> List[dict]:
     """Busca dados de telemetria."""
     try:
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/telemetry",
+            f"{API_BASE}{API_PORT_SUFFIX}/telemetry",
             params={"limit": limit},
             timeout=5
         )
@@ -145,7 +152,7 @@ def export_csv_cached(start_date=None, end_date=None, status_filter=None) -> byt
             params["status"] = status_filter
         
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/export/csv",
+            f"{API_BASE}{API_PORT_SUFFIX}/export/csv",
             params=params,
             timeout=10
         )
@@ -167,7 +174,7 @@ def fetch_latest_diagnosis() -> dict:
         return {}
     try:
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/diagnostics/latest",
+            f"{API_BASE}{API_PORT_SUFFIX}/diagnostics/latest",
             headers=_auth_headers(),
             timeout=5
         )
@@ -185,7 +192,7 @@ def fetch_diagnostic_stats() -> dict:
         return {}
     try:
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/diagnostics/stats",
+            f"{API_BASE}{API_PORT_SUFFIX}/diagnostics/stats",
             headers=_auth_headers(),
             timeout=5
         )
@@ -233,7 +240,7 @@ def fetch_ml_status() -> dict:
         return {}
     try:
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/ml/status",
+            f"{API_BASE}{API_PORT_SUFFIX}/ml/status",
             headers=_auth_headers(),
             timeout=5,
         )
@@ -269,7 +276,7 @@ def render_ml_card():
             with st.spinner("Treinando scikit-learn com o histórico local..."):
                 try:
                     resp = requests.post(
-                        f"{API_BASE}:{config.API_PORT}/ml/train?synthetic_bootstrap=true",
+                        f"{API_BASE}{API_PORT_SUFFIX}/ml/train?synthetic_bootstrap=true",
                         headers=_auth_headers(),
                         timeout=300,
                     )
@@ -292,7 +299,7 @@ def fetch_pattern_status() -> dict:
         return {}
     try:
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/ml/pattern/status",
+            f"{API_BASE}{API_PORT_SUFFIX}/ml/pattern/status",
             headers=_auth_headers(),
             timeout=5,
         )
@@ -307,7 +314,7 @@ def _train_pattern(limit: int = 50000) -> None:
     with st.spinner("Observando o histórico e aprendendo o padrão (sem rótulos)..."):
         try:
             resp = requests.post(
-                f"{API_BASE}:{config.API_PORT}/ml/pattern/train?limit={limit}",
+                f"{API_BASE}{API_PORT_SUFFIX}/ml/pattern/train?limit={limit}",
                 headers=_auth_headers(),
                 timeout=300,
             )
@@ -437,7 +444,7 @@ def fetch_snapshot() -> Optional[bytes]:
     """Busca o frame atual da câmera via API /snapshot."""
     try:
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/snapshot",
+            f"{API_BASE}{API_PORT_SUFFIX}/snapshot",
             timeout=3,
         )
         if resp.status_code == 200:
@@ -452,7 +459,7 @@ def fetch_snapshot() -> Optional[bytes]:
 def fetch_temperature() -> dict:
     """Busca leitura térmica atual via API /temperature."""
     try:
-        resp = requests.get(f"{API_BASE}:{config.API_PORT}/temperature", timeout=5)
+        resp = requests.get(f"{API_BASE}{API_PORT_SUFFIX}/temperature", timeout=5)
         if resp.status_code == 200:
             return resp.json()
     except Exception as e:
@@ -465,7 +472,7 @@ def fetch_temperature_history(limit: int = 200) -> List[dict]:
     """Busca histórico térmico via API /temperature/history."""
     try:
         resp = requests.get(
-            f"{API_BASE}:{config.API_PORT}/temperature/history",
+            f"{API_BASE}{API_PORT_SUFFIX}/temperature/history",
             params={"limit": limit},
             timeout=5,
         )
@@ -552,7 +559,7 @@ def render_live_camera():
     else:
         st.info("Sem sinal da câmera — o Vision Monitor está rodando?")
     st.markdown(
-        f"[🎥 Abrir stream MJPEG (site/APK)]({API_BASE}:{config.API_PORT}/stream)"
+        f"[🎥 Abrir stream MJPEG (site/APK)]({API_BASE}{API_PORT_SUFFIX}/stream)"
     )
 
 
@@ -693,7 +700,7 @@ def render_controls():
     if st.sidebar.button("🚨 PARADA DE EMERGÊNCIA MANUAL", type="primary", use_container_width=True):
         try:
             resp = requests.post(
-                f"{API_BASE}:{config.API_PORT}/manual-stop",
+                f"{API_BASE}{API_PORT_SUFFIX}/manual-stop",
                 json={"user_id": "dashboard_operator", "reason": "Dashboard manual stop"},
                 timeout=5
             )
@@ -707,7 +714,7 @@ def render_controls():
     if st.sidebar.button("⚙️ RESET DO SISTEMA", type="secondary", use_container_width=True):
         try:
             resp = requests.post(
-                f"{API_BASE}:{config.API_PORT}/reset",
+                f"{API_BASE}{API_PORT_SUFFIX}/reset",
                 json={"user_id": "dashboard_operator", "reason": "Dashboard reset"},
                 timeout=5
             )
@@ -745,7 +752,7 @@ def render_controls():
 def render_sidebar_info():
     """Painel lateral com informações rápidas."""
     with st.sidebar.expander("ℹ️ Informações do Sistema", expanded=False):
-        st.write(f"**API Base:** {API_BASE}:{config.API_PORT}")
+        st.write(f"**API Base:** {API_BASE}{API_PORT_SUFFIX}")
         st.write(f"**Fonte de Vídeo:** {config.VIDEO_SOURCE}")
         st.write(f"**Threshold Alert:** {config.ALERT_THRESHOLD}")
         st.write(f"**Threshold Critical:** {config.CRITICAL_THRESHOLD}")

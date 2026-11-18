@@ -1,0 +1,9 @@
+# Dashboard Streamlit (Render free / Streamlit Cloud) — LEAN
+# NÃO usar para o bundle da Vercel (api.py) nem para o Vision Monitor.
+# Build: pip install -r requirements-dashboard.txt
+# Start: streamlit run dashboard.py --server.port $PORT --server.address 0.0.0.0
+streamlit==1.43.0
+plotly==5.18.0
+pandas==2.2.2
+requests==2.32.3
+python-dotenv==1.1.0

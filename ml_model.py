@@ -52,7 +52,7 @@ logger = logging.getLogger("ml_model")
 
 WINDOW = 60                      # amostras por janela (~15 s a 4 Hz)
 STRIDE = 10                      # passo de deslize da janela nos dados de treino
-MODEL_DIR = Path("models")
+MODEL_DIR = Path(os.getenv("ML_MODEL_DIR", str(Path(__file__).resolve().parent / "models")))
 IF_PATH = MODEL_DIR / "anomaly_iforest.joblib"
 RF_PATH = MODEL_DIR / "status_classifier.joblib"
 META_PATH = MODEL_DIR / "metadata.json"
@@ -178,8 +178,14 @@ def synthetic_bootstrap(n_per_class: int = 400,
 class MLEngine:
     """Treina, persiste e aplica os modelos open-source."""
 
+    # No serverless (Vercel) os .joblib não vão no bundle: baixa do bucket
+    # Neon no cold start para /tmp (uma vez por instância quente).
+    _BOOTSTRAP_DIR = Path("/tmp/evo-models")
+
     def __init__(self, model_dir: Path = MODEL_DIR):
         self.model_dir = Path(model_dir)
+        if not (self.model_dir / IF_PATH.name).exists():
+            self.model_dir = self._bootstrap_from_storage()
         self.if_path = self.model_dir / IF_PATH.name
         self.rf_path = self.model_dir / RF_PATH.name
         self.meta_path = self.model_dir / META_PATH.name
@@ -188,6 +194,33 @@ class MLEngine:
         self._rf: Optional[RandomForestClassifier] = None
         self._meta: Dict[str, Any] = {}
         self._load()
+
+    @classmethod
+    def _bootstrap_from_storage(cls) -> Path:
+        endpoint = os.getenv("AWS_ENDPOINT_URL_S3")
+        ak = os.getenv("AWS_ACCESS_KEY_ID")
+        sk = os.getenv("AWS_SECRET_ACCESS_KEY")
+        bucket = os.getenv("NEON_STORAGE_BUCKET", "assets")
+        if endpoint and ak and sk:
+            try:
+                import boto3
+                from botocore.config import Config
+
+                client = boto3.client(
+                    "s3", endpoint_url=endpoint, region_name=os.getenv("AWS_REGION", "us-east-1"),
+                    aws_access_key_id=ak, aws_secret_access_key=sk,
+                    config=Config(signature_version="s3v4"),
+                )
+                cls._BOOTSTRAP_DIR.mkdir(parents=True, exist_ok=True)
+                for name in (IF_PATH.name, RF_PATH.name, META_PATH.name):
+                    dest = cls._BOOTSTRAP_DIR / name
+                    if not dest.exists():
+                        client.download_file(bucket, f"models/{name}", str(dest))
+                logger.info(f"Modelos ML baixados do bucket {bucket} para {cls._BOOTSTRAP_DIR}")
+                return cls._BOOTSTRAP_DIR
+            except Exception as e:
+                logger.warning(f"Bootstrap de modelos pelo storage falhou: {e}")
+        return Path(__file__).resolve().parent / "models"
 
     # ----- persistência -----
     def _load(self):
@@ -207,11 +240,12 @@ class MLEngine:
     # ----- treino -----
     def train(self,
               events: List[Dict[str, Any]],
-              synthetic_bootstrap: bool = True) -> Dict[str, Any]:
+              use_synthetic: bool = True) -> Dict[str, Any]:
         """
         Treina com o histórico (lista de dicts com 'value' e 'status').
         Data minimamente necessária: algumas dezenas de janelas; caso contrário
-        completa com bootstrap sintético se synthetic_bootstrap=True.
+        completa com bootstrap sintético se use_synthetic=True.
+        (o nome do parâmetro é use_synthetic porque synthetic_bootstrap e o nome da função de bootstrap)
         """
         t0 = time.time()
         values = [float(e.get("value", 0) or 0) for e in events]
@@ -220,7 +254,7 @@ class MLEngine:
 
         used_synthetic = False
         synth_meta = {}
-        if synthetic_bootstrap and n_real_windows < 50:
+        if use_synthetic and n_real_windows < 50:
             s_values, s_statuses = synthetic_bootstrap(n_per_class=400)
             values = values + s_values
             statuses = statuses + s_statuses

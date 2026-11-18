@@ -1,12 +1,9 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api.py", "use": "@vercel/python" },
-    { "src": "frontend/**", "use": "@vercel/static" }
+    { "src": "api.py", "use": "@vercel/python", "config": { "includeFiles": "models/**" } }
   ],
   "routes": [
-    { "src": "^/(status|telemetry|temperature|events|motion|snapshot|stream|export/csv|health|manual-stop|reset)(/.*)?$", "dest": "/api.py" },
-    { "src": "^/(auth|diagnostics|ml)(/.*)?$", "dest": "/api.py" },
-    { "src": "/(.*)", "dest": "/frontend/$1" }
+    { "src": "/(.*)", "dest": "/api.py" }
   ]
 }

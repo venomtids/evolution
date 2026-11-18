@@ -18,3 +18,8 @@ python-dotenv==1.1.0
 structlog==23.2.0
 python-jose[cryptography]==3.3.0
 cryptography==43.0.1
+# Neon Object Storage (S3-compatible) — /snapshot na nuvem (redirect pré-assinado)
+boto3==1.44.5
+# IA open-source (IsolationForest + RandomForest) — laudos provider=ml na nuvem
+scikit-learn==1.9.1
+joblib==1.6.0

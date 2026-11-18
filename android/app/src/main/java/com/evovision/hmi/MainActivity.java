@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
         final EditText input = new EditText(this);
         input.setText(serverUrl());
         input.setSelection(input.getText().length());
-        input.setHint("http://192.168.0.10:8000/");
+        input.setHint("https://evolution-beta-six.vercel.app/");
 
         new AlertDialog.Builder(this)
                 .setTitle("Servidor EVO·VISION")

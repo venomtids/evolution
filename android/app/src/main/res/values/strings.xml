@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">EVO·VISION</string>
-    <string name="default_server_url">http://10.20.30.83:8000/</string>
+    <string name="default_server_url">https://evolution-beta-six.vercel.app/</string>
 </resources>

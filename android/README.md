@@ -1,13 +1,13 @@
 # EVO·VISION — APK (WebView wrapper)
 
-Wrapper Android do HMI EVO·VISION (site servido em `http://<LAN>:8000/`).
+Wrapper Android do HMI EVO·VISION. O padrão é a nuvem: `https://evolution-beta-six.vercel.app/` (funciona sem a máquina local). Também aceita o servidor local (`http://<LAN>:8000/`) nas settings.
 
 ## O que o app faz
 - Abre o HMI fullscreen (tema escuro, sem barra do navegador)
 - **Tentativa automática de reconexão** quando o servidor está fora do ar
 - **Configurar servidor sem reinstalar:** toque e segure (long-press) na tela e edite o endereço
-  - O padrão de fábrica é `10.20.30.83:8000` (desta máquina no Wi-Fi atual)
-  - Para outro PC/rede, ajuste nas settings (ex.: `http://192.168.0.10:8000/`)
+  - O padrão de fábrica é `evolution-beta-six.vercel.app` (Vercel + Neon, sem este PC)
+  - Para apontar para outro servidor (ex.: PC local `http://192.168.0.10:8000/`), ajuste nas settings
 - Botão Voltar navega dentro do histórico do site
 - Tela de offline com retry automático a cada 5 s
 

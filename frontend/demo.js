@@ -129,7 +129,7 @@ window.EVO_DEMO = (() => {
 
     if (p === "/status") return jsonResponse({
       current_status: level, last_value: m, last_update: iso(),
-      esp32_connected: true, events_last_hour: 137, demo: true,
+      esp32_connected: false, events_last_hour: 137, demo: true,
     });
     if (p === "/temperature") return jsonResponse({
       temperature: Math.round(demoTemp() * 100) / 100, source: "simulado (demo)",

@@ -418,7 +418,9 @@ irToggleBtn.addEventListener("click", () => applyIrMode(!state.irMode));
 const hudMotion = $("hudMotion");
 async function pollMotion() {
   try {
-    const resp = await api("/motion");
+    // /motion é opcional (só existe com o Vision Monitor na edge).
+    // Usar fetch direto: um 404 aqui NÃO pode ligar o modo demo global.
+    const resp = await fetch("/motion");
     if (!resp.ok) throw new Error("no motion");
     const d = await resp.json();
     hudMotion.textContent = d.fresh === false

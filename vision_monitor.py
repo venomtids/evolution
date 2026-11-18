@@ -632,7 +632,29 @@ class VisionMonitor:
         self._executor = None
 
     # ---------- Captura ----------
+    def _probe_camera(self, max_index: int = 4):
+        """Detecta automaticamente a camera via cabo (USB/integrada): indices 0..3."""
+        for idx in range(max_index):
+            cap = cv2.VideoCapture(idx)
+            try:
+                if not cap.isOpened():
+                    continue
+                ok, _frame = cap.read()
+                if ok:
+                    logger.info(f"Camera detectada no indice {idx} (via cabo/integrada).")
+                    return idx
+            except Exception:
+                continue
+            finally:
+                cap.release()
+        return None
+
     def _open_source(self):
+        if self.source == "auto":
+            idx = self._probe_camera()
+            if idx is None:
+                raise RuntimeError("Nenhuma camera detectada nos indices 0-3. Conecte a webcam via USB ou use VIDEO_SOURCE=mock.")
+            self.source = idx
         if self.source == "mock":
             self.mock = MockCamera()
             self.mock.set_mode(self.mock_mode)

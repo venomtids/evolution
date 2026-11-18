@@ -9,14 +9,19 @@
 - Correção de race serverless: `create_all` serializado com `pg_advisory_lock` no Postgres (cold starts concorrentes colidiam em `pg_type`).
 
 ## O que falta (física > software — só com hardware/contas suas)
-1. **ESP32 físico**: flashear `esp32_cloud_agent.ino` (Arduino IDE; libs: ArduinoJson, OneWire, DallasTemperature), WiFi, `DEVICE_TOKEN` (valor no `.env` local deste PC — copie para `DEVICE_TOKEN` no firmware), relé no GPIO26 (active-low), botão no GPIO33, DS18B20 no GPIO4. → E-Stop e temperatura reais sem este PC.
+1. **ESP32 físico**: clique duplo em `flash_esp32.bat` (Windows; baixa arduino-cli/core na 1ª vez, detecta a porta, pergunta SSID/senha, grava — firmware já compilado/validado). Relé no GPIO26 (active-low), botão no GPIO33, DS18B20 no GPIO4. → E-Stop e temperatura reais sem este PC.
 2. **Visão ao vivo**: nenhuma nuvem "cria" câmera. Opções:
    a. ESP32-CAM (~R$60–100) flasheada para POST de frame a cada 2–5s → bucket (faço o sketch sob demanda) — visão limitada (frame-a-frame).
    b. Qualquer máquina sempre ligada com o Vision Monitor + `NEON_STORAGE_ENABLED=true` (ex.: PC velho, Pi 4/5) — visão completa, continua não sendo "a nuvem".
    c. Sem hardware: `/snapshot` fica 404 honesto; HMI cai no feed DEMO sintético.
-3. **Dashboard Streamlit**: precisa de 1 serviço grátis — Streamlit Community Cloud (build lê `requirements.txt` da raiz — incompatível com manter o bundle da Vercel enxuto) **ou (recomendado) Render free** (build `pip install -r requirements-full.txt`, start `streamlit run dashboard.py`, sleep após inatividade) **ou** cole no `.env`/secrets: `API_BASE_URL=https://evolution-beta-six.vercel.app` (já implementado em `dashboard.py`).
+3. **Dashboard Streamlit**: Streamlit Community Cloud (grátis, sem cartão). Entrypoint `streamlit_app/app.py` + `streamlit_app/requirements.txt` (a raiz segue enxuta para a Vercel); `dashboard.py` também lê `API_BASE_URL` de `st.secrets` (Secrets da app no Cloud). Deploy em 5 passos: ver DEPLOY_CLIENTE.md §4b. IA dos laudos: provider `ml` (IsolationForest + RandomForest locais, treinados com os dados reais) — nenhuma chave de IA externa é necessária em lugar nenhum.
 4. ~~**APK**~~ — resolvido em 2026-11-18 (commit 3f38fc1): padrão de fábrica agora é `evolution-beta-six.vercel.app`; precisa rebuildar o APK para o novo padrão valer.
 5. **Commit/push** pendente: mudanças em `api.py`, `ml_model.py`, `vercel.json`, `.vercelignore`, `frontend/app.js`, `dashboard.py`, `train_ai.py`, `esp32_cloud_agent.ino` (novo), `requirements*.txt`, `DEPLOY_VERCEL.md` — nada foi commitado.
+
+## Câmera sem este PC
+- Via cabo (PC/Pi do cliente): `VIDEO_SOURCE=auto` no `.env` (detecta webcam nos índices 0-3) ou índice fixo (`VIDEO_SOURCE=0`); publica no bucket via `NEON_STORAGE_ENABLED=true`.
+- Via permissões (celular/PC de qualquer pessoa): aba WEB CAM do HMI → getUserMedia (HTTPS).
+- Ver `DEPLOY_CLIENTE.md`.
 
 ## Verificação (comandos)
 ```bash

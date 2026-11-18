@@ -24,8 +24,8 @@ class Config:
     @property
     def VIDEO_SOURCE(self):
         raw = os.getenv("VIDEO_SOURCE", "0").strip()
-        if raw.lower() == "mock":
-            return "mock"
+        if raw.lower() in ("mock", "auto"):  # auto = detecta camera via cabo (indices 0-3)
+            return raw.lower()
         try:
             return int(raw)
         except ValueError:

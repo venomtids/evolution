@@ -1,0 +1,9 @@
+# Dependencias do dashboard Streamlit (Streamlit Community Cloud).
+# O Cloud le este arquivo porque fica no MESMO diretorio do entrypoint
+# (docs: requirements em subdirectory junto ao app).
+# A raiz requirements.txt continua ENXUTA para a Vercel (bundle limit).
+streamlit==1.43.0
+plotly==5.18.0
+pandas==2.2.2
+requests==2.32.3
+python-dotenv==1.1.0

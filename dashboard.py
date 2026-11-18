@@ -57,7 +57,13 @@ PAGE_TITLE = "Dashboard Operacional - Manutenção Preditiva"
 REFRESH_SECONDS = config.DASHBOARD_REFRESH_SECONDS if hasattr(config, 'DASHBOARD_REFRESH_SECONDS') else 2
 MAX_TELEMETRY_POINTS = config.MAX_TELEMETRY_POINTS if hasattr(config, 'MAX_TELEMETRY_POINTS') else 300
 # override para Streamlit Community Cloud / nuvem: API_BASE_URL=https://seu-app.vercel.app
+# (local: variavel de ambiente; Streamlit Cloud: "Secrets" da app — st.secrets)
 _API_BASE_ENV = os.getenv("API_BASE_URL", "").rstrip("/")
+if not _API_BASE_ENV:
+    try:
+        _API_BASE_ENV = str(st.secrets.get("API_BASE_URL", "") or "").rstrip("/")
+    except Exception:
+        pass
 if _API_BASE_ENV:
     API_BASE = _API_BASE_ENV
     API_PORT_SUFFIX = ""

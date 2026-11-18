@@ -36,6 +36,23 @@ As credenciais `AWS_*` do bucket Neon (`AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID
 `JWT_SECRET` precisa ser igual ao da Vercel, senão o login no HMI funciona
 mas chamadas autenticadas quebram.
 
+## 4a. Alternativa de câmera
+- Webcam USB/integrada (auto): `VIDEO_SOURCE=auto` no `.env` — detecta índices 0-3.
+- Simulação sem hardware: `VIDEO_SOURCE=mock`.
+- **ESP32 E-Stop + temperatura**: clique duplo em `flash_esp32.bat` (Windows)
+  na pasta do repo — detecta a porta USB do ESP32, pergunta SSID/senha do Wi-Fi
+  e grava o firmware (baixa arduino-cli/core ~300 MB só na 1ª vez). O firmware
+  `esp32_cloud_agent.ino` compilado e validado. O ESP32 então aparece na nuvem
+  em ~2 s (heartbeat), sem nenhuma porta aberta nem este PC.
+
+## 4b. Dashboard na nuvem (sem cartão — Streamlit Community Cloud)
+1. https://share.streamlit.io → Sign in com o **GitHub** (sua conta)
+2. New app → repo `venomtids/evolution`, branch `Visionard`
+3. Main file path: `streamlit_app/app.py`
+   (o Cloud lê `streamlit_app/requirements.txt` — a raiz fica enxuta p/ a Vercel)
+4. Advanced settings → Python 3.12 → em **Secrets**: `API_BASE_URL="https://evolution-beta-six.vercel.app"`
+5. Deploy → URL pública do dashboard (grátis, sem cartão)
+
 ## 4. Rodar
 ```bash
 python vision_monitor.py

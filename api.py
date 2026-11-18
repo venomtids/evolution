@@ -54,23 +54,33 @@ from diagnostic_ai import diagnostic_engine, DIAGNOSIS_SCHEMA
 
 DATABASE_URL = config.DATABASE_URL
 
-# Engine SQLite:
-# - Em produção/local (arquivo), use QueuePool com WAL + busy_timeout:
-#   permite leituras concorrentes com o escritor único (evita 500s sob carga de 10 Hz).
-# - Em memória (:memory:, testes), StaticPool é obrigatório.
+# Motor:
+# - Postgres (ex.: Neon na Vercel): SSL obrigatório, pool pequeno (serverless).
+# - SQLite em arquivo (local): QueuePool com WAL + busy_timeout.
+# - SQLite :memory: (testes): StaticPool obrigatório.
+_is_postgres = DATABASE_URL.startswith("postgresql")
 _is_memory = ":memory:" in DATABASE_URL
-_engine_kwargs = dict(
-    connect_args={"check_same_thread": False, "timeout": 5},
-    echo=False,
-)
-if _is_memory:
-    _engine_kwargs["poolclass"] = StaticPool
+_engine_kwargs = dict(echo=False)
+
+if _is_postgres:
+    _engine_kwargs.update(
+        connect_args={"sslmode": "require"},
+        pool_size=3,
+        max_overflow=2,
+        pool_pre_ping=True,
+    )
+elif _is_memory:
+    _engine_kwargs.update(connect_args={"check_same_thread": False, "timeout": 5}, poolclass=StaticPool)
 else:
-    _engine_kwargs.update({"pool_size": 5, "max_overflow": 10})
+    _engine_kwargs.update(
+        connect_args={"check_same_thread": False, "timeout": 5},
+        pool_size=5,
+        max_overflow=10,
+    )
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
-if not _is_memory:
+if not _is_postgres and not _is_memory:
     @event.listens_for(engine, "connect")
     def _sqlite_pragma(dbapi_conn, _connection_record):
         cur = dbapi_conn.cursor()
@@ -850,19 +860,27 @@ async def manual_emergency_stop(
     Aciona parada de emergência manual via ESP32.
     Registra ação no log do sistema.
     """
-    # Chama ESP32
+    # Tenta acionar o ESP32 de verdade; em falha, responde 503 honesto
+    # (nunca finge sucesso nem grava evento CRITICO de mentira).
     result = await esp32_service.emergency_stop()
-    
-    # Log da ação
+    esp_ok = bool(result.get("success") is True)
+
+    # Log da tentativa (sem fingir que a máquina parou)
     log = SystemLog(
         action="emergency_stop",
-        details=f"Manual stop by {request.user_id}: {request.reason or 'Sem motivo'}",
+        details=f"Manual stop by {request.user_id}: {request.reason or 'Sem motivo'} | esp32_ok={esp_ok}",
         user_id=request.user_id
     )
     db.add(log)
-    db.commit()
-    
-    # Registra evento CRITICO
+
+    if not esp_ok:
+        db.commit()
+        raise HTTPException(
+            503,
+            f"ESP32 inalcançável em {esp32_service.base_url} — a parada física NÃO foi executada. Verifique a rede do controlador."
+        )
+
+    # ESP32 confirmou: registra evento CRITICO correspondente
     event = Event(
         timestamp=datetime.utcnow(),
         status="CRITICO",
@@ -872,8 +890,8 @@ async def manual_emergency_stop(
     )
     db.add(event)
     db.commit()
-    
-    return {"success": result.get("success", False), "esp32_response": result}
+
+    return {"success": True, "esp32_response": result}
 
 
 @app.post("/reset", response_model=dict)
@@ -885,19 +903,25 @@ async def reset_system(
     Reseta o sistema via ESP32 (requer botão físico ou comando explícito).
     Registra ação no log do sistema.
     """
-    # Chama ESP32
+    # Tenta o reset no ESP32 de verdade; em falha, 503 honesto.
     result = await esp32_service.reset()
-    
-    # Log da ação
+    esp_ok = bool(result.get("success") is True)
+
     log = SystemLog(
         action="reset",
-        details=f"Reset by {request.user_id}: {request.reason or 'Sem motivo'}",
+        details=f"Reset by {request.user_id}: {request.reason or 'Sem motivo'} | esp32_ok={esp_ok}",
         user_id=request.user_id
     )
     db.add(log)
-    db.commit()
-    
-    # Registra evento NORMAL
+
+    if not esp_ok:
+        db.commit()
+        raise HTTPException(
+            503,
+            f"ESP32 inalcançável em {esp32_service.base_url} — o latch NÃO foi liberado. Verifique a rede do controlador."
+        )
+
+    # ESP32 confirmou: registra evento NORMAL correspondente
     event = Event(
         timestamp=datetime.utcnow(),
         status="NORMAL",
@@ -907,8 +931,8 @@ async def reset_system(
     )
     db.add(event)
     db.commit()
-    
-    return {"success": result.get("success", False), "esp32_response": result}
+
+    return {"success": True, "esp32_response": result}
 
 
 @app.get("/export/csv")

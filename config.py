@@ -191,6 +191,12 @@ class Config:
     @property
     def API_PORT(self) -> int:
         return int(os.getenv("API_PORT", "8000"))
+
+    @property
+    def API_BASE_URL(self) -> str:
+        """Se definido (ex.: https://evolution-xyz.vercel.app), o Vision Monitor
+        publica eventos direto nesse backend (nuvem) em vez de API_HOST:API_PORT."""
+        return os.getenv("API_BASE_URL", "").strip()
     
     @property
     def DATABASE_URL(self) -> str:

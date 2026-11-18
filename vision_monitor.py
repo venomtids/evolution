@@ -995,7 +995,11 @@ class VisionMonitor:
         return str(filepath)
 
     def _send_to_api(self, status: str, value: float, frame_path: str):
-        """Envia evento para API em thread separada."""
+        """Envia evento para API em thread separada.
+
+        Se config.API_BASE_URL estiver definido (ex.: https://evolution-xxx.vercel.app),
+        publica direto lá (nuvem); senão, usa API_HOST/API_PORT local.
+        """
         try:
             api_host = config.API_HOST if config.API_HOST != "0.0.0.0" else "127.0.0.1"
             payload = {
@@ -1007,7 +1011,8 @@ class VisionMonitor:
                 "source": "vision",
                 "sequence": self._sequence,
             }
-            url = f"http://{api_host}:{config.API_PORT}/events"
+            base = (getattr(config, "API_BASE_URL", "") or "").rstrip("/")
+            url = f"{base}/events" if base else f"http://{api_host}:{config.API_PORT}/events"
             requests.post(url, json=payload, timeout=5)
             logger.debug(f"Evento enviado à API: {status}")
         except Exception as e:

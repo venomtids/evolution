@@ -1,5 +1,12 @@
 {
   "version": 2,
-  "builds": [{ "src": "frontend/**", "use": "@vercel/static" }],
-  "rewrites": [{ "source": "/(.*)", "destination": "/frontend/$1" }]
+  "builds": [
+    { "src": "api.py", "use": "@vercel/python" },
+    { "src": "frontend/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "^/(status|telemetry|temperature|events|motion|snapshot|stream|export/csv|health|manual-stop|reset)(/.*)?$", "dest": "/api.py" },
+    { "src": "^/(auth|diagnostics|ml)(/.*)?$", "dest": "/api.py" },
+    { "src": "/(.*)", "dest": "/frontend/$1" }
+  ]
 }

@@ -1,0 +1,16 @@
+.venv
+.git
+node_modules
+__pycache__
+captures
+logs
+exports
+models
+assets
+android
+evolution.db
+*.sqlite
+*.sqlite3
+*.db
+.env
+.vercel

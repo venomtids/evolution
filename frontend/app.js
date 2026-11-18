@@ -539,8 +539,16 @@ $("confirmOk").addEventListener("click", () => { confirmModal.hidden = true; sta
 async function callSafetyEndpoint(path, okMsg) {
   try {
     const resp = await api(path, { method: "POST", body: { user_id: state.user?.username || "operator", reason: "Ação via painel web" } });
-    if (resp.ok) toast(okMsg);
-    else toast(`Falha (${resp.status}).`, true);
+    if (resp.ok) {
+      toast(window.EVO_DEMO?.isActive?.() ? "MODO DEMO: ação simulada (nada foi acionado de verdade)." : okMsg);
+    } else {
+      let msg = `Falha (${resp.status}).`;
+      try {
+        const d = await resp.json();
+        if (d && typeof d.detail === "string") msg = d.detail;
+      } catch { /* resposta sem JSON */ }
+      toast(msg, true);
+    }
   } catch { toast("API inacessível.", true); }
   await refreshStatus();
 }

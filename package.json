@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "@neon/config": "^1.14.3",
+    "@neon/env": "^2.1.6",
+    "@neon/realtime": "^0.2.1",
+    "@neondatabase/serverless": "^1.2.1",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
+    "typescript": "^7.0.2"
+  },
+  "name": "evolution",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "start": "python -m uvicorn api:app --host 0.0.0.0 --port 8000",
+    "storage:smoke": "python storage.py",
+    "migrate:neon": "python migrate_to_neon.py"
+  }
+}

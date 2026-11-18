@@ -37,3 +37,10 @@
 - **/stream (câmera ao vivo):** sem webcam na nuvem; o botão MONITOR cai no feed de demonstração (`MONITOR · DEMO`).
 - **Dados novos** só existem na nuvem quando o seu PC (Vision Monitor) publica; com PC desligado, o site mostra o último estado sincronizado.
 - Push para GitHub ainda depende de você: adicione `Creator-Gm` como colaborador do repo `venomtids/evolution` e aceite o convite.
+
+## Neon (branch production, projeto `visionard`)
+- Postgres 18 (`DATABASE_URL` puxado via `neon deploy` / `neon env pull`)
+- Function `hello`: status público da frota → https://br-still-rain-bboojij8-hello.compute.c-15.us-east-1.aws.neon.tech/ (lê o Postgres)
+- Object Storage: bucket privado `assets` (teste: `python storage.py` — upload/head/download/delete)
+- Realtime: habilitado no branch (`neon realtime enable --allowed-origin https://frontend-azure-nu-92.vercel.app --allowed-origin http://localhost:8000`). Prova E2E: `node realtime-smoke.mjs` (assina os 5 últimos eventos, insere um 'smoke' e observa via WebSocket).
+- O HMI ainda NÃO consome Realtime (usa polling de 5s); adotar exige endpoint que sela a query + cliente com `@neon/realtime/client` — próximo passo natural.

@@ -11,3 +11,8 @@ logs/
 exports/
 nohup.out
 models/
+.neon
+node_modules/
+
+.env.local
+.env*.local

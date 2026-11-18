@@ -56,6 +56,6 @@ for table in TABLES:
     with dst_engine.connect() as dst:
         dst_count = dst.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
     status = "OK" if dst_count == total else "DIVERGÊNCIA!"
-    print(f"[{status}] {table}: {total} origem → {dst_count} destino")
+    print(f"[{status}] {table}: {total} origem -> {dst_count} destino")
 
 print("Migração concluída.")

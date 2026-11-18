@@ -11,3 +11,6 @@ plotly==5.18.0
 streamlit==1.43.0
 opencv-python-headless==4.12.0.88
 websockets==13.0
+
+# Neon Object Storage (S3-compatible) — usado por storage.py / snapshots na nuvem
+boto3==1.44.5

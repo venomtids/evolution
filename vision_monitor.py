@@ -953,6 +953,21 @@ class VisionMonitor:
                 return
             tmp.write_bytes(buf.tobytes())
             os.replace(tmp, final)
+            # Opcional: espelha no Neon Object Storage (bucket privado `assets`)
+            # quando NEON_STORAGE_ENABLED=true — útil para a versão hospedada.
+            try:
+                import storage
+
+                if storage.enabled():
+                    if now - getattr(self, "_last_snapshot_upload", 0.0) >= 2.0:
+                        self._last_snapshot_upload = now
+                        threading.Thread(
+                            target=storage.upload_file,
+                            args=(str(final), "snapshots/latest.jpg", "image/jpeg"),
+                            daemon=True,
+                        ).start()
+            except Exception as e:
+                logger.debug(f"Upload do snapshot p/ Neon Storage ignorado: {e}")
         except Exception as e:
             logger.debug(f"Falha ao salvar latest.jpg: {e}")
 

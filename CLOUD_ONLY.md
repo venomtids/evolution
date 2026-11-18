@@ -15,7 +15,7 @@
    b. Qualquer máquina sempre ligada com o Vision Monitor + `NEON_STORAGE_ENABLED=true` (ex.: PC velho, Pi 4/5) — visão completa, continua não sendo "a nuvem".
    c. Sem hardware: `/snapshot` fica 404 honesto; HMI cai no feed DEMO sintético.
 3. **Dashboard Streamlit**: precisa de 1 serviço grátis — Streamlit Community Cloud (build lê `requirements.txt` da raiz — incompatível com manter o bundle da Vercel enxuto) **ou (recomendado) Render free** (build `pip install -r requirements-full.txt`, start `streamlit run dashboard.py`, sleep após inatividade) **ou** cole no `.env`/secrets: `API_BASE_URL=https://evolution-beta-six.vercel.app` (já implementado em `dashboard.py`).
-4. **APK**: conferir se o wrapper Capacitor aponta para `evolution-beta-six.vercel.app` (senão, rebuildar o APK).
+4. ~~**APK**~~ — resolvido em 2026-11-18 (commit 3f38fc1): padrão de fábrica agora é `evolution-beta-six.vercel.app`; precisa rebuildar o APK para o novo padrão valer.
 5. **Commit/push** pendente: mudanças em `api.py`, `ml_model.py`, `vercel.json`, `.vercelignore`, `frontend/app.js`, `dashboard.py`, `train_ai.py`, `esp32_cloud_agent.ino` (novo), `requirements*.txt`, `DEPLOY_VERCEL.md` — nada foi commitado.
 
 ## Verificação (comandos)

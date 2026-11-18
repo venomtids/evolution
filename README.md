@@ -43,6 +43,8 @@ evolution/
 ├── start_all.sh              # Orquestra API + Dashboard + Vision (mock|webcam|rtsp|stop)
 ├── test_flow.sh              # Teste E2E (register → login → eventos → burst → laudo IA)
 ├── train_ai.py               # CLI: treina a IA scikit-learn com os dados locais
+├── learn_pattern.py          # CLI: aprende o padrão da máquina sem rótulos
+├── pattern_learner.py        # IA não supervisionada do padrão de movimento
 ├── config.py                 # Centralização de thresholds, IPs, URLs, ROI
 ├── vision_monitor.py         # Captura vídeo, ROI, detecção Farnebäck, estado
 ├── diagnostic_ai.py          # Motor de diagnóstico por IA (ml/gemini/openrouter/local)
@@ -388,6 +390,82 @@ AI_PROVIDER=ml      # sem modelo treinado → fallback automático para a heurí
 - O `.joblib` treinado fica em `models/` (ignorado pelo git) — cada máquina treina o seu modelo com os seus dados.
 - A acurácia reportada é sobre janelas do próprio treino; para validação honesta, separe um conjunto de teste ou reavalie após operar com dados reais.
 - Quanto mais dias de telemetria real você acumula, melhor o IsolationForest aprende o "normal" da sua máquina.
+
+---
+
+## 6.4 Aprender o padrão da máquina SEM rótulos (só observando)
+
+O `pattern_learner.py` é uma IA **não supervisionada**: ela não recebe
+`NORMAL/ALERTA/CRITICO`, thresholds, diagnóstico nem qualquer informação
+prévia. Ela só vê a série de movimento (índice Farnebäck amostrado a 4 Hz) e
+descobre sozinha:
+
+| Etapa | O que a IA faz |
+|---|---|
+| 1. Features | 22 features por janela: amplitude, dinâmica (tendência, autocorrelação), ritmo (espectro/faixas) e forma |
+| 2. Padrão | Descobre as janelas densas (comportamento típico) por k-NN + recorte robusto mediana/MAD |
+| 3. Regimes | KMeans separa os padrões normais recorrentes (ex.: parada, vazio, carga nominal) |
+| 4. Limites | Calibra alerta/crítico pelos percentis do **próprio normal** (z-score robusto) |
+| 5. Detecção | IsolationForest + z-score comparam cada nova janela com o padrão aprendido |
+
+### Treinar agora
+
+```bash
+# 1) A partir do histórico do SQLite (IGNORA a coluna status)
+python learn_pattern.py
+
+# 2) Observando a câmera/vídeo ao vivo (o jeito mais fiel)
+python learn_pattern.py --source 0 --seconds 120
+python learn_pattern.py --source captures/simulation.mp4 --seconds 90
+python learn_pattern.py --source mock --seconds 30
+
+# 3) Pela API (JWT) ou botão do dashboard
+curl -X POST "http://localhost:8000/ml/pattern/train?limit=50000" \
+  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/ml/pattern/status -H "Authorization: Bearer $TOKEN"
+curl -X POST http://localhost:8000/ml/pattern/reset -H "Authorization: Bearer $TOKEN"
+```
+
+O modelo fica em `models/pattern_learner.joblib` (ignorado pelo git) e os
+metadados legíveis em `models/pattern_metadata.json`.
+
+### Aprendizado automático no Vision Monitor
+
+Com `PATTERN_LEARNING_ENABLED=true` (padrão), na primeira execução o monitor
+observa a máquina por `PATTERN_LEARNING_SECONDS` e aprende o padrão sozinho
+(HUD mostra `PADRAO: APRENDENDO`). Nas próximas execuções ele carrega o modelo
+salvo; `PATTERN_RELEARN_ON_START=true` força reaprender.
+
+```bash
+# .env
+PATTERN_LEARNING_ENABLED=true
+PATTERN_LEARNING_SECONDS=60      # observação inicial
+PATTERN_WINDOW=40                # 10 s a 4 Hz
+PATTERN_SAMPLE_HZ=4
+PATTERN_SENSITIVITY=1.0          # >1 detecta desvios mais sutis
+PATTERN_ESCALATE_ALERTA=true     # padrão anômalo gera ALERTA (aviso precoce)
+PATTERN_ESCALATE_CRITICO=false   # true = padrão crítico também aciona E-Stop
+PATTERN_ADAPT_ENABLED=true       # acompanha drift natural lentamente
+```
+
+### Notas honestas
+
+- Aprenda o padrão com a máquina **em operação normal**. Se você treinar
+  durante uma falha, a IA aprende aquilo como "normal" — ela não tem como
+  saber o que é defeito sem alguém dizer (ou sem dados rotulados).
+- Aprenda com a **mesma fonte** que será monitorada (mesma câmera/enquadramento/
+  resolução). A escala do movimento muda de uma fonte para outra, então um
+  padrão aprendido na webcam não vale para o vídeo de simulação, e vice-versa.
+- O vídeo `captures/simulation_normal.mp4` (gerado por
+  `python generate_simulation.py --mode normal --duration 60`) serve como
+  gravação de referência de movimento padrão para testar o fluxo completo.
+- Se a máquina tiver regimes normais muito diferentes (parada x carga x
+  velocidade), todos podem ser aprendidos; o KMeans mostra quantos regimes
+  foram encontrados.
+- O padrão é um **aviso precoce**. O E-Stop por thresholds absolutos
+  (`ALERT_THRESHOLD` / `CRITICAL_THRESHOLD`) continua ativo e independente.
+- Para trocar de máquina/peça, rode `python learn_pattern.py --reset` e
+  aprenda de novo.
 
 ---
 

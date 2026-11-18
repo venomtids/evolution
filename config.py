@@ -19,10 +19,17 @@ class Config:
     # VISÃO COMPUTACIONAL (vision_monitor.py)
     # ===========================================================================
     
-    # Fonte de vídeo: 0 para webcam local, ou URL RTSP (ex: rtsp://user:pass@192.168.1.100:554/stream)
+    # Fonte de vídeo: 0 para webcam local, URL RTSP, caminho de arquivo de vídeo,
+    # ou "mock" para simulação (Codespaces/sem hardware).
     @property
-    def VIDEO_SOURCE(self) -> int:
-        return int(os.getenv("VIDEO_SOURCE", "0"))
+    def VIDEO_SOURCE(self):
+        raw = os.getenv("VIDEO_SOURCE", "0").strip()
+        if raw.lower() == "mock":
+            return "mock"
+        try:
+            return int(raw)
+        except ValueError:
+            return raw  # caminho de arquivo (ex: captures/simulacao.mp4) ou URL RTSP
     
     @property 
     def ROI_COORDS(self) -> list:
@@ -90,7 +97,89 @@ class Config:
     @property
     def TARGET_FPS(self) -> int:
         return int(os.getenv("TARGET_FPS", "30"))
-    
+
+    # ===========================================================================
+    # APRENDIZADO DO PADRÃO DA MÁQUINA (pattern_learner.py — sem rótulos)
+    # ===========================================================================
+
+    @property
+    def PATTERN_LEARNING_ENABLED(self) -> bool:
+        """Liga o aprendizado/pontuação não supervisionada no Vision Monitor."""
+        return os.getenv("PATTERN_LEARNING_ENABLED", "true").lower() == "true"
+
+    @property
+    def PATTERN_LEARNING_SECONDS(self) -> int:
+        """Duração da observação inicial quando ainda não existe padrão salvo."""
+        return int(os.getenv("PATTERN_LEARNING_SECONDS", "60"))
+
+    @property
+    def PATTERN_RELEARN_ON_START(self) -> bool:
+        """Reaprende o padrão a cada inicialização (ignora modelo salvo)."""
+        return os.getenv("PATTERN_RELEARN_ON_START", "false").lower() == "true"
+
+    @property
+    def PATTERN_WINDOW(self) -> int:
+        return int(os.getenv("PATTERN_WINDOW", "40"))
+
+    @property
+    def PATTERN_STRIDE(self) -> int:
+        return int(os.getenv("PATTERN_STRIDE", "5"))
+
+    @property
+    def PATTERN_SAMPLE_HZ(self) -> float:
+        """Taxa fixa de amostragem do movimento (alinha treino histórico e ao vivo)."""
+        return float(os.getenv("PATTERN_SAMPLE_HZ", "4"))
+
+    @property
+    def PATTERN_EVAL_SECONDS(self) -> float:
+        return float(os.getenv("PATTERN_EVAL_SECONDS", "0.5"))
+
+    @property
+    def PATTERN_ALERT_EVALS(self) -> int:
+        """Avaliações consecutivas em ALERTA para escalar o estado (equivale a segundos)."""
+        return int(os.getenv("PATTERN_ALERT_EVALS", "4"))
+
+    @property
+    def PATTERN_CRITICAL_EVALS(self) -> int:
+        return int(os.getenv("PATTERN_CRITICAL_EVALS", "8"))
+
+    @property
+    def PATTERN_ESCALATE_ALERTA(self) -> bool:
+        """Padrão anômalo pode elevar o estado para ALERTA (aviso precoce)."""
+        return os.getenv("PATTERN_ESCALATE_ALERTA", "true").lower() == "true"
+
+    @property
+    def PATTERN_ESCALATE_CRITICO(self) -> bool:
+        """Padrão anômalo pode elevar para CRÍTICO/E-Stop (use com cautela)."""
+        return os.getenv("PATTERN_ESCALATE_CRITICO", "false").lower() == "true"
+
+    @property
+    def PATTERN_SENSITIVITY(self) -> float:
+        """>1 = mais sensível (limites menores); <1 = mais tolerante."""
+        return float(os.getenv("PATTERN_SENSITIVITY", "1.0"))
+
+    @property
+    def PATTERN_MAX_CORE_FRACTION(self) -> float:
+        """
+        Fração máxima das janelas tratada como comportamento padrão.
+        Menor = mais seletivo (descarta caudas/regimes raros de alta vibração).
+        """
+        return float(os.getenv("PATTERN_MAX_CORE_FRACTION", "0.99"))
+
+    @property
+    def PATTERN_MIN_CORE_FRACTION(self) -> float:
+        """Fração mínima do padrão (evita modelo treinado com poucas janelas)."""
+        return float(os.getenv("PATTERN_MIN_CORE_FRACTION", "0.50"))
+
+    @property
+    def PATTERN_ADAPT_ENABLED(self) -> bool:
+        """Adapta o padrão ao drift natural (carga/velocidade/temperatura)."""
+        return os.getenv("PATTERN_ADAPT_ENABLED", "true").lower() == "true"
+
+    @property
+    def PATTERN_ADAPT_INTERVAL_SECONDS(self) -> int:
+        return int(os.getenv("PATTERN_ADAPT_INTERVAL_SECONDS", "300"))
+
     # ===========================================================================
     # BACKEND / API (api.py)
     # ===========================================================================
@@ -153,6 +242,10 @@ class Config:
     @property
     def ALERT_COOLDOWN_SECONDS(self) -> int:
         return int(os.getenv("ALERT_COOLDOWN_SECONDS", "60"))
+
+    @property
+    def ESP32_STOP_COOLDOWN_SECONDS(self) -> int:
+        return int(os.getenv("ESP32_STOP_COOLDOWN_SECONDS", "5"))
     
     @property
     def CRITICAL_COOLDOWN_SECONDS(self) -> int:
@@ -175,12 +268,43 @@ class Config:
         return os.getenv("CSV_EXPORT_PATH", "./exports")
 
     # ===========================================================================
-    # DIRETÓRIOS
+    # TEMPERATURE SENSORS (thermal monitoring + camera integration)
     # ===========================================================================
+
+    @property
+    def TEMP_SENSOR_ENABLED(self) -> bool:
+        return os.getenv("TEMP_SENSOR_ENABLED", "false").lower() == "true"
+
+    @property
+    def TEMP_SENSOR_TYPE(self) -> str:
+        return os.getenv("TEMP_SENSOR_TYPE", "mock")  # mock|sensor|webhook
+
+    @property
+    def TEMP_MAX_ALERTA(self) -> float:
+        return float(os.getenv("TEMP_MAX_ALERTA", "60.0"))
+
+    @property
+    def TEMP_MAX_CRITICO(self) -> float:
+        return float(os.getenv("TEMP_MAX_CRITICO", "75.0"))
+
+    @property
+    def TEMP_SOURCE(self) -> str:
+        return os.getenv("TEMP_SOURCE", "mock")  # mock|file|sensor|webhook
+
+    @property
+    def TEMP_FILE_PATH(self) -> str:
+        return os.getenv("TEMP_FILE_PATH", "logs/temperature.log")
 
     @property
     def CAPTURES_DIR(self) -> str:
         return os.getenv("CAPTURES_DIR", "captures")
+
+    @property
+    def EVIDENCE_CAPTURE_ENABLED(self) -> bool:
+        """Salva frames de evidência (ALERTA/CRITICO) em CAPTURES_DIR.
+        ATENÇÃO: contém a imagem real da câmera (rosto/ambiente). Padrão desligado aqui por privacidade;
+        ligue explicitamente com EVIDENCE_CAPTURE_ENABLED=true se quiser esse recurso."""
+        return os.getenv("EVIDENCE_CAPTURE_ENABLED", "false").lower() == "true"
 
     @property
     def LOGS_DIR(self) -> str:

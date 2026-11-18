@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.EvoVision" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/evo_bg</item>
+        <item name="android:statusBarColor">@color/evo_bg</item>
+        <item name="android:navigationBarColor">@color/evo_bg</item>
+    </style>
+</resources>

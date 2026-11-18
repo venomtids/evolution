@@ -97,6 +97,10 @@ body.status-critico .status-word{color:#ff6b62;text-shadow:0 0 18px rgba(255,59,
 .big-metric__value{font-family:var(--mono);font-weight:700;font-size:30px;font-variant-numeric:tabular-nums;color:var(--text)}
 .big-metric__value--sm{font-size:17px;padding-top:6px}
 .big-metric__unit{font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+#tempMetric.warn .big-metric__value{color:var(--amber)}
+#tempMetric.warn .big-metric__unit{color:var(--amber)}
+#tempMetric.crit .big-metric__value{color:var(--red);text-shadow:0 0 14px rgba(255,59,48,.55)}
+#tempMetric.crit .big-metric__unit{color:#ff8a80}
 
 /* ════════ GRID / PANELS ════════ */
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 16px}
@@ -229,3 +233,26 @@ body.status-critico .status-word{color:#ff6b62;text-shadow:0 0 18px rgba(255,59,
   .status-banner__right{flex-wrap:wrap}
   .brand-text span{display:none}.topbar__meta .meta-block:nth-child(2){display:none}
 }
+
+/* ════════ INFRAVERMELHO ════════ */
+.ir-row{display:flex;align-items:center;gap:10px;margin-top:2px}
+.ir-hint{font-size:10px;color:#46536c;letter-spacing:.03em}
+.btn--ir{display:inline-flex;align-items:center;gap:8px}
+.ir-dot{width:8px;height:8px;border-radius:50%;background:#3d4a63;box-shadow:0 0 0 2px rgba(61,74,99,.35);transition:all .2s}
+.btn--ir.is-active{color:#2ee59d;border-color:#2ee59d;background:rgba(46,229,157,.10);box-shadow:0 0 16px rgba(46,229,157,.35)}
+.btn--ir.is-active .ir-dot{background:#2ee59d;box-shadow:0 0 8px rgba(46,229,157,.9);animation:blink 1.1s steps(2) infinite}
+.camera-media.ir-mode{filter:grayscale(1) brightness(1.18) contrast(1.35) sepia(1) hue-rotate(52deg) saturate(4.2)}
+
+.camera-hud__motion{color:#2fd6ff;text-shadow:0 0 6px rgba(47,214,255,.5)}
+.camera-hud__motion.warn{color:#ffb000;text-shadow:0 0 6px rgba(255,176,0,.6)}
+.camera-hud__motion.hot{color:#ff5b4d;text-shadow:0 0 8px rgba(255,59,48,.7)}
+
+/* ════════ QUALIDADE MOBILE / APK ════════ */
+.btn{ touch-action:manipulation; -webkit-tap-highlight-color:transparent }
+.seg__btn,.estop{ touch-action:manipulation; user-select:none }
+.camera-media{ transition:filter .4s ease }
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important }
+}
+
+.demo-badge{font:700 10px/1 var(--mono);letter-spacing:.14em;color:#0b0f16;background:var(--amber);padding:6px 10px;border-radius:4px;box-shadow:0 0 14px rgba(255,176,0,.45)}

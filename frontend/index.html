@@ -6,6 +6,10 @@
   <title>EVO·VISION — Manutenção Preditiva Industrial</title>
   <meta name="description" content="Painel operacional de manutenção preditiva e segurança industrial: telemetria de vibração em tempo real, visão computacional, E-Stop e diagnóstico por IA." />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="theme-color" content="#07090d" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="status-normal">
@@ -26,6 +30,7 @@
     <div class="topbar__status">
       <span class="led" id="apiLed" aria-hidden="true"></span>
       <span class="topbar__api" id="apiState">CONECTANDO…</span>
+      <span class="demo-badge" id="demoBadge" hidden>MODO DEMO</span>
     </div>
 
     <div class="topbar__meta">
@@ -60,6 +65,11 @@
         <span class="big-metric__value" id="bigValue">0.00</span>
         <span class="big-metric__unit">índice</span>
       </div>
+      <div class="big-metric" id="tempMetric">
+        <span class="big-metric__label">TEMPERATURA</span>
+        <span class="big-metric__value" id="tempValue">--.-</span>
+        <span class="big-metric__unit" id="tempUnit">°C · aguardando sensor</span>
+      </div>
       <div class="big-metric">
         <span class="big-metric__label">EVENTOS 24H</span>
         <span class="big-metric__value" id="events24h">0</span>
@@ -84,6 +94,7 @@
       <div class="camera-frame">
         <video id="localVideo" playsinline muted autoplay class="camera-media" hidden></video>
         <img id="mjpegView" class="camera-media" alt="Stream da câmera IP" hidden />
+        <canvas id="demoFeed" class="camera-media" hidden aria-label="Feed sintético de demonstração"></canvas>
         <div class="camera-empty" id="cameraEmpty">
           <svg viewBox="0 0 48 48" class="camera-empty__icon" aria-hidden="true">
             <rect x="4" y="12" width="28" height="24" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/>
@@ -95,6 +106,7 @@
         </div>
         <div class="camera-hud" id="cameraHud" hidden>
           <span id="hudLabel">CAM 01 · LIVE</span>
+          <span id="hudMotion" class="camera-hud__motion">MOV: --</span>
           <span id="hudTime">--:--:--</span>
         </div>
       </div>
@@ -115,6 +127,12 @@
         <div class="cam-panel" id="camPanelIp" hidden>
           <input type="text" class="field" id="mjpegUrl" placeholder="http://192.168.1.50:8081/video" autocomplete="off" spellcheck="false" />
           <button class="btn btn--primary" id="loadMjpegBtn">CARREGAR</button>
+        </div>
+        <div class="ir-row">
+          <button class="btn btn--ghost btn--ir" id="irToggleBtn" aria-pressed="false" title="Filtro de visão noturna / infravermelho sobre o feed ativo">
+            <span class="ir-dot" aria-hidden="true"></span>INFRAVERMELHO
+          </button>
+          <span class="ir-hint">Visão noturna sobre o feed ativo</span>
         </div>
         <p class="hint" id="camHint">A câmera roda no navegador — nenhum vídeo sai desta máquina.</p>
       </div>
@@ -170,7 +188,7 @@
       <div class="table-wrap">
         <table class="events-table">
           <thead>
-            <tr><th>HORA</th><th>STATUS</th><th>ÍNDICE</th><th>ORIGEM</th><th>FRAME</th></tr>
+            <tr><th>HORA</th><th>STATUS</th><th>ÍNDICE</th><th>TEMP °C</th><th>ORIGEM</th><th>FRAME</th></tr>
           </thead>
           <tbody id="eventsBody"><tr><td colspan="5" class="table-empty">Carregando…</td></tr></tbody>
         </table>
@@ -238,6 +256,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+  <script src="/demo.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

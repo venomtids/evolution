@@ -38,10 +38,21 @@ function toast(msg, isError = false) {
 }
 
 async function api(path, { method = "GET", body, auth = false } = {}) {
+  if (window.EVO_DEMO?.isActive()) return window.EVO_DEMO.resolve(path, { method, body, auth });
   const headers = {};
   if (body) headers["Content-Type"] = "application/json";
   if (auth && state.token) headers["Authorization"] = `Bearer ${state.token}`;
-  const resp = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  let resp;
+  try {
+    resp = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  } catch (networkError) {
+    // Sem backend ao alcance (ex.: deploy estático na Vercel) → modo demo interativo
+    if (window.EVO_DEMO) return window.EVO_DEMO.resolve(path, { method, body, auth });
+    throw networkError;
+  }
+  if (window.EVO_DEMO && (resp.status === 404 || resp.status >= 500)) {
+    return window.EVO_DEMO.resolve(path, { method, body, auth });
+  }
   if (resp.status === 401 && auth) {
     clearSession();
     renderAuthUI();
@@ -195,10 +206,28 @@ async function refreshStatus() {
   }
 }
 
+const TEMP_ALERT = 60, TEMP_CRIT = 75;
+
+async function refreshTemperature() {
+  try {
+    const resp = await api("/temperature");
+    if (!resp.ok) throw new Error();
+    const t = await resp.json();
+    const temp = Number(t.temperature || 0);
+    const src = String(t.source || "mock").toUpperCase();
+    $("tempValue").textContent = temp > 0 ? temp.toFixed(1) : "--.-";
+    $("tempUnit").textContent = temp > 0 ? `°C · ${src}` : "°C · aguardando sensor";
+    const metric = $("tempMetric");
+    metric.classList.toggle("warn", temp >= TEMP_ALERT && temp < TEMP_CRIT);
+    metric.classList.toggle("crit", temp >= TEMP_CRIT);
+  } catch (e) { /* poll silencioso */ }
+}
+
 function setApiLed(ok) {
-  $("apiLed").classList.toggle("ok", ok);
-  $("apiLed").classList.toggle("fail", !ok);
-  $("apiState").textContent = ok ? "API ONLINE" : "API OFFLINE";
+  const demo = window.EVO_DEMO?.isActive?.();
+  $("apiLed").classList.toggle("ok", ok || !!demo);
+  $("apiLed").classList.toggle("fail", !ok && !demo);
+  $("apiState").textContent = demo ? "MODO DEMO" : ok ? "API ONLINE" : "API OFFLINE";
 }
 
 /* ───────── ocorrências ───────── */
@@ -228,19 +257,21 @@ async function refreshEvents() {
 function renderEvents() {
   const tbody = $("eventsBody");
   if (!state.events.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="table-empty">Nenhuma ocorrência registrada.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="table-empty">Nenhuma ocorrência registrada.</td></tr>';
     return;
   }
   tbody.innerHTML = state.events.slice(0, 12).map((e) => {
     const fu = frameUrl(e.frame_path);
     const thumb = fu ? `<img class="frame-thumb" src="${esc(fu)}" alt="frame" loading="lazy" onerror="this.replaceWith(document.createTextNode('—'))" onclick="window.open('${esc(fu)}','_blank')" />` : "—";
-    return `<tr><td>${esc(fmtTime(e.timestamp))}</td><td>${statusChip(e.status)}</td><td>${Number(e.value).toFixed(3)}</td><td>${esc(e.source)}</td><td>${thumb}</td></tr>`;
+    const temp = e.temperature != null ? Number(e.temperature).toFixed(1) : "—";
+    return `<tr><td>${esc(fmtTime(e.timestamp))}</td><td>${statusChip(e.status)}</td><td>${Number(e.value).toFixed(3)}</td><td>${temp}</td><td>${esc(e.source)}</td><td>${thumb}</td></tr>`;
   }).join("");
 }
 
 $("eventFilter").addEventListener("change", refreshEvents);
 $("exportCsvBtn").addEventListener("click", () => {
   const filter = $("eventFilter").value;
+  if (window.EVO_DEMO?.isActive()) { window.EVO_DEMO.csvDownload(filter); return; }
   const qs = filter ? `?status=${filter}` : "";
   window.location.href = `/export/csv${qs}`;
 });
@@ -249,13 +280,23 @@ $("exportCsvBtn").addEventListener("click", () => {
 const camVideo = $("localVideo");
 const camImg = $("mjpegView");
 
+function baseHudLabel(mode) {
+  const demo = window.EVO_DEMO?.isActive?.();
+  return { local: "WEB CAM · LIVE", monitor: demo ? "MONITOR · DEMO" : "MONITOR · LIVE", ip: "IP CAM · LIVE" }[mode];
+}
+
 function setCameraUI(mode) {
   state.cameraMode = mode;
+  if (mode !== "monitor" && window.EVO_DEMO) window.EVO_DEMO.disconnectDemoMonitor();
   const live = mode !== null;
   $("cameraEmpty").hidden = live;
   camVideo.hidden = mode !== "local";
-  camImg.hidden = !(mode === "ip" || mode === "monitor");
+  const demoMonitor = window.EVO_DEMO?.isActive?.() && mode === "monitor";
+  $("demoFeed").hidden = !demoMonitor;
+  camImg.hidden = !(mode === "ip" || (mode === "monitor" && !demoMonitor));
   $("cameraHud").hidden = !live;
+  const baseHud = baseHudLabel(mode);
+  if (baseHud) $("hudLabel").textContent = state.irMode ? `${baseHud} · IR` : baseHud;
   $("camTag").textContent = live ? "AO VIVO" : "OFFLINE";
   $("camTag").classList.toggle("on", live);
   $("connectCamBtn").hidden = mode === "local";
@@ -270,14 +311,32 @@ function setCameraUI(mode) {
 }
 
 $("connectMonitorBtn").addEventListener("click", () => {
-  camImg.onerror = () => { toast("Monitor sem sinal. O Vision Monitor está rodando?", true); setCameraUI(null); };
+  if (window.EVO_DEMO?.isActive()) {
+    const canvas = $("demoFeed");
+    camImg.removeAttribute("src");
+    window.EVO_DEMO.connectDemoMonitor(canvas);
+    setCameraUI("monitor");
+    toast("Feed de demonstração (sintético).");
+    return;
+  }
+  camImg.onerror = () => {
+    if (window.EVO_DEMO?.isActive()) {
+      const canvas = $("demoFeed");
+      window.EVO_DEMO.connectDemoMonitor(canvas);
+      setCameraUI("monitor");
+      toast("API indisponível — feed de demonstração ativado.");
+      return;
+    }
+    toast("Monitor sem sinal. O Vision Monitor está rodando?", true); setCameraUI(null);
+  };
   camImg.onload = () => toast("Conectado ao stream do monitor.");
-  $("hudLabel").textContent = "MONITOR · LIVE";
   camImg.src = `/stream?t=${Date.now()}`;
   setCameraUI("monitor");
 });
 $("disconnectMonitorBtn").addEventListener("click", () => {
+  if (window.EVO_DEMO) window.EVO_DEMO.disconnectDemoMonitor();
   camImg.removeAttribute("src");
+  $("demoFeed").hidden = true;
   setCameraUI(null);
 });
 
@@ -314,9 +373,51 @@ $("loadMjpegBtn").addEventListener("click", () => {
   camImg.onerror = () => { toast("Stream não carregou. Verifique URL e rede.", true); setCameraUI(null); };
   camImg.onload = () => toast("Stream carregado.");
   camImg.src = url;
-  $("hudLabel").textContent = "IP CAM · LIVE";
   setCameraUI("ip");
 });
+
+/* ───────── infravermelho (visão noturna) ───────── */
+state.irMode = false;
+const irToggleBtn = $("irToggleBtn");
+function applyIrMode(on) {
+  state.irMode = on;
+  [camVideo, camImg, $("demoFeed")].forEach((el) => el.classList.toggle("ir-mode", on));
+  irToggleBtn.classList.toggle("is-active", on);
+  irToggleBtn.setAttribute("aria-pressed", String(on));
+  const baseHud = baseHudLabel(state.cameraMode);
+  if (baseHud) $("hudLabel").textContent = on ? `${baseHud} · IR` : baseHud;
+  toast(on ? "Infravermelho ativado." : "Infravermelho desativado.");
+  try { localStorage.setItem("evovision_ir", on ? "1" : "0"); } catch (e) { /* ignore */ }
+}
+irToggleBtn.addEventListener("click", () => applyIrMode(!state.irMode));
+
+/* ───────── localização do movimento (Vision Monitor) ───────── */
+const hudMotion = $("hudMotion");
+async function pollMotion() {
+  try {
+    const resp = await api("/motion");
+    if (!resp.ok) throw new Error("no motion");
+    const d = await resp.json();
+    hudMotion.textContent = d.fresh === false
+      ? "MOV: SEM SINAL"
+      : `MOV: ${d.region} ${d.direction || ""} · ${Number(d.magnitude).toFixed(2)}`;
+    hudMotion.classList.toggle("warn", d.state === "ALERTA");
+    hudMotion.classList.toggle("hot", d.state === "CRITICO");
+  } catch (e) {
+    hudMotion.textContent = "MOV: --";
+    hudMotion.classList.remove("warn", "hot");
+  }
+}
+setInterval(pollMotion, 2000);
+pollMotion();
+try {
+  if (localStorage.getItem("evovision_ir") === "1") {
+    state.irMode = true;
+    [camVideo, camImg, $("demoFeed")].forEach((el) => el.classList.add("ir-mode"));
+    irToggleBtn.classList.add("is-active");
+    irToggleBtn.setAttribute("aria-pressed", "true");
+  }
+} catch (e) { /* ignore */ }
 
 document.querySelectorAll("[data-cam-tab]").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -457,7 +558,7 @@ $("resetBtn").addEventListener("click", async () => {
 /* ───────── poll loop ───────── */
 async function poll() {
   if (document.hidden) return;
-  await Promise.all([refreshStatus(), refreshTelemetry(), refreshEvents()]);
+  await Promise.all([refreshStatus(), refreshTelemetry(), refreshEvents(), refreshTemperature()]);
 }
 setInterval(poll, REFRESH_MS);
 window.addEventListener("resize", () => drawChart(state.telemetry));

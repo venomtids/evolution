@@ -285,6 +285,86 @@ def render_ml_card():
                     st.error(f"Erro ao treinar: {e}")
 
 
+@st.cache_data(ttl=REFRESH_SECONDS)
+def fetch_pattern_status() -> dict:
+    """Metadados do padrão de movimento aprendido (não supervisionado)."""
+    if not API_TOKEN:
+        return {}
+    try:
+        resp = requests.get(
+            f"{API_BASE}:{config.API_PORT}/ml/pattern/status",
+            headers=_auth_headers(),
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(f"Erro ao buscar /ml/pattern/status: {e}")
+    return {}
+
+
+def _train_pattern(limit: int = 50000) -> None:
+    with st.spinner("Observando o histórico e aprendendo o padrão (sem rótulos)..."):
+        try:
+            resp = requests.post(
+                f"{API_BASE}:{config.API_PORT}/ml/pattern/train?limit={limit}",
+                headers=_auth_headers(),
+                timeout=300,
+            )
+            if resp.status_code == 200:
+                st.success("Padrão da máquina aprendido com sucesso!")
+                st.cache_data.clear()
+                fn = getattr(st, "rerun", None) or getattr(st, "experimental_rerun", None)
+                if fn:
+                    fn()
+            else:
+                st.error(f"Falha no aprendizado: HTTP {resp.status_code} — {resp.text[:200]}")
+        except Exception as e:
+            st.error(f"Erro ao aprender padrão: {e}")
+
+
+def render_pattern_card():
+    """Card do padrão de movimento aprendido (IA sem rótulos)."""
+    st.markdown("### 👁️ Padrão de Movimento (sem rótulos)")
+    status = fetch_pattern_status()
+    if not status:
+        if not API_TOKEN:
+            st.info("Configure DASHBOARD_API_TOKEN para ver/treinar o padrão da máquina.")
+        return
+
+    if status.get("trained"):
+        th = status.get("thresholds", {})
+        col1, col2 = st.columns(2)
+        col1.metric("Janelas normais", status.get("n_core", 0))
+        col2.metric("Regimes", status.get("n_regimes", 1))
+        st.caption(
+            f"Aprendeu observando {status.get('n_samples', 0)} amostras · "
+            f"alerta z ≥ {th.get('rms_z_alert', '—')} · "
+            f"crítico z ≥ {th.get('rms_z_critical', '—')}\n\n"
+            f"Treino: {str(status.get('trained_at', ''))[:19]} · "
+            f"{status.get('train_seconds')}s · **nenhum rótulo usado**"
+        )
+        regimes = status.get("regimes", [])
+        if regimes:
+            st.caption(
+                "Padrões normais recorrentes: "
+                + " · ".join(
+                    f"R{r.get('id')} (pico {r.get('peak_median')})"
+                    for r in regimes
+                )
+            )
+        if st.button("👁️ Reaprender padrão agora"):
+            _train_pattern()
+    else:
+        st.warning("A máquina ainda não teve o padrão aprendido.")
+        st.caption(
+            "A IA observa apenas os movimentos (sem status/rótulos) e descobre "
+            "sozinha o comportamento normal."
+        )
+        if st.button("👁️ Aprender padrão agora"):
+            _train_pattern()
+
+
 def encode_image_to_base64(image_path: str) -> Optional[str]:
     """Codifica imagem para base64 (exibição em tabela)."""
     try:
@@ -366,6 +446,100 @@ def fetch_snapshot() -> Optional[bytes]:
     except Exception as e:
         print(f"Erro ao buscar snapshot: {e}")
     return None
+
+
+@st.cache_data(ttl=REFRESH_SECONDS)
+def fetch_temperature() -> dict:
+    """Busca leitura térmica atual via API /temperature."""
+    try:
+        resp = requests.get(f"{API_BASE}:{config.API_PORT}/temperature", timeout=5)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(f"Erro ao buscar /temperature: {e}")
+    return {}
+
+
+@st.cache_data(ttl=REFRESH_SECONDS)
+def fetch_temperature_history(limit: int = 200) -> List[dict]:
+    """Busca histórico térmico via API /temperature/history."""
+    try:
+        resp = requests.get(
+            f"{API_BASE}:{config.API_PORT}/temperature/history",
+            params={"limit": limit},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("points", [])
+    except Exception as e:
+        print(f"Erro ao buscar /temperature/history: {e}")
+    return []
+
+
+def render_temperature_panel():
+    """Painel de telemetria térmica (câmera com sensor de temperatura)."""
+    st.markdown("### 🌡️ Temperatura")
+    data = fetch_temperature()
+    hist = fetch_temperature_history(limit=150)
+    temp = float(data.get("temperature", 0.0))
+    thresholds = data.get("thresholds", {})
+    alerta = float(thresholds.get("alerta", getattr(config, "TEMP_MAX_ALERTA", 60.0)))
+    critico = float(thresholds.get("critico", getattr(config, "TEMP_MAX_CRITICO", 75.0)))
+
+    if temp <= 0 and not hist:
+        st.info("Sensor de temperatura não ativo. Ative TEMP_SENSOR_ENABLED=true e use TEMP_SOURCE=mock|file|sensor.")
+        return
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Temperatura", f"{temp:.1f}°C")
+    col2.metric("Limite ALERTA", f"{alerta:.1f}°C")
+    col3.metric("Limite CRÍTICO", f"{critico:.1f}°C")
+
+    # Gauge
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number+delta",
+            value=temp,
+            delta={"reference": alerta, "suffix": "°C"},
+            gauge={
+                "axis": {"range": [None, max(critico + 20, 100)]},
+                "bar": {"color": "darkblue"},
+                "steps": [
+                    {"range": [0, alerta], "color": "#d4edda"},
+                    {"range": [alerta, critico], "color": "#fff3cd"},
+                    {"range": [critico, max(critico + 20, 100)], "color": "#f8d7da"},
+                ],
+                "threshold": {"line": {"color": "red", "width": 4}, "thickness": 0.75, "value": critico},
+            },
+            domain={"x": [0, 1], "y": [0, 1]},
+            number={"suffix": "°C"},
+        )
+    )
+    fig.update_layout(height=260, margin=dict(l=20, r=20, t=30, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Histórico térmico
+    if hist:
+        df = pd.DataFrame(hist)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df = df.sort_values("timestamp")
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scattergl(
+            x=df["timestamp"], y=df["temperature"],
+            mode="lines+markers", name="Temperatura (°C)",
+            line=dict(color="#e74c3c", width=2),
+        ))
+        fig2.add_hline(y=alerta, line_dash="dash", line_color="orange", annotation_text="ALERTA")
+        fig2.add_hline(y=critico, line_dash="dot", line_color="red", annotation_text="CRITICO")
+        fig2.update_layout(
+            title="Histórico térmico (últimos pontos)",
+            xaxis_title="Tempo",
+            yaxis_title="°C",
+            template="plotly_white",
+            height=250,
+            margin=dict(l=60, r=20, t=40, b=40),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
 
 def render_live_camera():
@@ -487,7 +661,7 @@ def render_recent_events(events: List[dict]):
         df,
         column_config={
             "Timestamp": st.column_config.DatetimeColumn("Timestamp", format="HH:mm:ss"),
-            "Status": st.column_config.StatusColumn("Status"),
+            "Status": st.column_config.TextColumn("Status"),
             "Magnitude": st.column_config.NumberColumn("Magnitude"),
             "Frame": st.column_config.ImageColumn("Frame", help="Frame capturado"),
         },
@@ -618,12 +792,14 @@ def main_loop():
     with col_left:
         render_live_camera()
         render_telemetry_chart(telemetry)
+        render_temperature_panel()
     
     with col_right:
         st.markdown("### 📋 Últimas Ocorrências")
         render_recent_events(events)
         render_ai_diagnosis()
         render_ml_card()
+        render_pattern_card()
     
     # Verificar se precisa resetar estado baseado em E-Stop
     if current_status == "CRITICO":

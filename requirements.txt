@@ -41,13 +41,13 @@ plotly==5.18.0
 streamlit==1.43.0
 
 # OpenCV (visão computacional) - headless para servidores
-opencv-python-headless==4.12.0.80
+opencv-python-headless==4.12.0.88
 
 # NumPy
 numpy==2.2.3
 
-# Webhook / Telegram
-python-telegram-bot==4.24.0
+# Webhook / Telegram - enviado via HTTP direto (api.telegram.org/bot...),
+# nao usa a biblioteca python-telegram-bot (nao e' importada em nenhum modulo)
 
 # Logging
 structlog==23.2.0

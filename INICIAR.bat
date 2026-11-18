@@ -2,7 +2,9 @@
 REM ==========================================================================
 REM  EVO-VISION - Instalacao e execucao local (Windows + VS Code)
 REM  Uso: duplo clique ou, no terminal do VS Code:  INICIAR.bat
-REM  Abre 3 janelas: API (8000), Dashboard (8501), Vision (webcam).
+REM  Abre 4 janelas: Mock ESP32 (80), API (8000), Dashboard (8501), Vision (webcam).
+REM  O Mock ESP32 e usado apenas para teste local; em producao o ESP32 real
+REM  responde em ESP32_IP:80 (ver .env). Para nao usar o mock, apague a linha do mock.
 REM ==========================================================================
 chcp 65001 >nul
 cd /d "%~dp0"
@@ -16,7 +18,7 @@ where python >nul 2>nul
 if errorlevel 1 (
   echo [ERRO] Python nao encontrado.
   echo        Instale o Python 3.10+ em https://www.python.org/downloads/
-  echo        (marque "Add python.exe to PATH" no instalador)
+  echo        ^(marque "Add python.exe to PATH" no instalador^)
   pause
   exit /b 1
 )
@@ -32,10 +34,10 @@ call .venv\Scripts\activate.bat
 
 REM ---- 2) Dependencias (uma vez) ----
 if not exist .venv\.deps_installed (
-  echo [2/5] Instalando dependencias (pode demorar alguns minutos)...
+  echo [2/5] Instalando dependencias ^(pode demorar alguns minutos^)...
   python -m pip install --upgrade pip
   pip install -r requirements.txt
-  REM Desktop Windows tem display: troca headless por openCV completo (HUD)
+  REM Desktop Windows tem display: troca headless por openCV completo ^(HUD^)
   pip uninstall -y opencv-python-headless >nul 2>&1
   pip install opencv-python
   echo ok > .venv\.deps_installed
@@ -45,13 +47,15 @@ if not exist .venv\.deps_installed (
 
 REM ---- 3) .env ----
 if not exist .env (
-  echo [3/5] Copiando .env.example para .env (edite-o se necessario)...
+  echo [3/5] Copiando .env.example para .env ^(edite-o se necessario^)...
   copy .env.example .env >nul
 ) else (
   echo [3/5] .env ja existe.
 )
 
 REM ---- 4) Iniciar servicos ----
+echo [4/5] Iniciando Mock ESP32 (porta 80)...
+start "EVO - MOCK ESP32" cmd /k "cd /d "%~dp0" && call .venv\Scripts\activate.bat && python mock_esp32.py --port 80"
 echo [4/5] Iniciando API (porta 8000)...
 start "EVO - API" cmd /k "cd /d "%~dp0" && call .venv\Scripts\activate.bat && uvicorn api:app --host 0.0.0.0 --port 8000"
 echo [4/5] Iniciando Dashboard (porta 8501)...
@@ -72,6 +76,8 @@ echo   - Dashboard:          http://localhost:8501
 echo   - API Docs:           http://localhost:8000/docs
 echo.
 echo   A webcam usada e a definida em VIDEO_SOURCE no .env (0 = primaria).
-echo   Feche as 3 janelas pretas para parar tudo.
+echo   Para usar o video de teste, gere com: python generate_simulation.py
+echo   e aponte VIDEO_SOURCE=captures/simulation.mp4 no .env.
+echo   Feche as 4 janelas pretas para parar tudo.
 echo ============================================
 pause

@@ -1,0 +1,6 @@
+<resources>
+    <color name="evo_bg">#07090d</color>
+    <color name="evo_panel">#0e1219</color>
+    <color name="evo_cyan">#2fd6ff</color>
+    <color name="evo_amber">#ffb000</color>
+</resources>

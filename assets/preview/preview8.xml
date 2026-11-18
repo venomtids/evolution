@@ -1,0 +1,16 @@
+<mujoco model="stl_preview2">
+  <compiler meshdir="."/>
+  <option timestep="0.002"/>
+  <visual><global offwidth="640" offheight="480"/></visual>
+  <asset>
+    <mesh name="arm" file="arm_v4_dec.stl"/>
+    <material name="orange" rgba="0.86 0.42 0.07 1" specular="0.5" shininess="0.6"/>
+  </asset>
+  <worldbody>
+    <light pos="200 -300 500" dir="-0.4 0.5 -1" diffuse="0.8 0.8 0.8"/>
+    <light pos="-300 200 300" diffuse="0.4 0.4 0.45"/>
+    <geom name="floor" type="plane" size="2000 2000 1" rgba="0.3 0.3 0.33 1"/>
+    <geom name="cube" type="box" size="50 50 50" pos="0 0 50" rgba="0.8 0.4 0.1 1"/>
+    <camera name="side" pos="420 0 150" xyaxes="0 1 0 0 0 1"/>
+  </worldbody>
+</mujoco>

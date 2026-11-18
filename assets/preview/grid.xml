@@ -1,0 +1,65 @@
+<mujoco model="parts_grid">
+  <compiler meshdir="."/>
+  <option timestep="0.002" gravity="0 0 -9.8"/>
+  <visual><global offwidth="3200" offheight="700"/></visual>
+  <worldbody>
+    <light pos="0 -400 600" dir="0 0.5 -1" diffuse="0.85 0.85 0.85"/>
+    <light pos="0 400 300" dir="0 -0.3 -1" diffuse="0.5 0.5 0.55"/>
+    <geom name="floor" type="plane" size="5000 1000 0.1" rgba="0.25 0.25 0.28 1"/>
+    <camera name="front" pos="1600 -520 160" xyaxes="1 0 0 0 0.25 0.97"/>
+    <geom name="g00" type="mesh" mesh="p00" pos="65 0 0"/>
+    <geom name="g01" type="mesh" mesh="p01" pos="195 0 0"/>
+    <geom name="g02" type="mesh" mesh="p02" pos="325 0 0"/>
+    <geom name="g03" type="mesh" mesh="p03" pos="455 0 0"/>
+    <geom name="g04" type="mesh" mesh="p04" pos="585 0 0"/>
+    <geom name="g05" type="mesh" mesh="p05" pos="715 0 0"/>
+    <geom name="g06" type="mesh" mesh="p06" pos="845 0 0"/>
+    <geom name="g07" type="mesh" mesh="p07" pos="975 0 0"/>
+    <geom name="g08" type="mesh" mesh="p08" pos="1105 0 0"/>
+    <geom name="g09" type="mesh" mesh="p09" pos="1235 0 0"/>
+    <geom name="g10" type="mesh" mesh="p10" pos="1365 0 0"/>
+    <geom name="g11" type="mesh" mesh="p11" pos="1495 0 0"/>
+    <geom name="g12" type="mesh" mesh="p12" pos="1625 0 0"/>
+    <geom name="g13" type="mesh" mesh="p13" pos="1755 0 0"/>
+    <geom name="g14" type="mesh" mesh="p14" pos="1885 0 0"/>
+    <geom name="g15" type="mesh" mesh="p15" pos="2015 0 0"/>
+    <geom name="g16" type="mesh" mesh="p16" pos="2145 0 0"/>
+    <geom name="g17" type="mesh" mesh="p17" pos="2275 0 0"/>
+    <geom name="g18" type="mesh" mesh="p18" pos="2405 0 0"/>
+    <geom name="g19" type="mesh" mesh="p19" pos="2535 0 0"/>
+    <geom name="g20" type="mesh" mesh="p20" pos="2665 0 0"/>
+    <geom name="g21" type="mesh" mesh="p21" pos="2795 0 0"/>
+    <geom name="g22" type="mesh" mesh="p22" pos="2925 0 0"/>
+    <geom name="g23" type="mesh" mesh="p23" pos="3055 0 0"/>
+    <geom name="g24" type="mesh" mesh="p24" pos="3185 0 0"/>
+    <geom name="g25" type="mesh" mesh="p25" pos="3315 0 0"/>
+  </worldbody>
+  <asset>
+    <mesh name="p00" file="parts\part_00_id3_5370t.stl"/>
+    <mesh name="p01" file="parts\part_01_id28_5370t.stl"/>
+    <mesh name="p02" file="parts\part_02_id31_5370t.stl"/>
+    <mesh name="p03" file="parts\part_03_id6_4768t.stl"/>
+    <mesh name="p04" file="parts\part_04_id0_3090t.stl"/>
+    <mesh name="p05" file="parts\part_05_id11_3066t.stl"/>
+    <mesh name="p06" file="parts\part_06_id4_2208t.stl"/>
+    <mesh name="p07" file="parts\part_07_id16_2174t.stl"/>
+    <mesh name="p08" file="parts\part_08_id12_1254t.stl"/>
+    <mesh name="p09" file="parts\part_09_id14_1204t.stl"/>
+    <mesh name="p10" file="parts\part_10_id13_980t.stl"/>
+    <mesh name="p11" file="parts\part_11_id17_480t.stl"/>
+    <mesh name="p12" file="parts\part_12_id19_480t.stl"/>
+    <mesh name="p13" file="parts\part_13_id15_468t.stl"/>
+    <mesh name="p14" file="parts\part_14_id24_468t.stl"/>
+    <mesh name="p15" file="parts\part_15_id25_468t.stl"/>
+    <mesh name="p16" file="parts\part_16_id18_468t.stl"/>
+    <mesh name="p17" file="parts\part_17_id22_340t.stl"/>
+    <mesh name="p18" file="parts\part_18_id9_340t.stl"/>
+    <mesh name="p19" file="parts\part_19_id29_276t.stl"/>
+    <mesh name="p20" file="parts\part_20_id1_276t.stl"/>
+    <mesh name="p21" file="parts\part_21_id10_276t.stl"/>
+    <mesh name="p22" file="parts\part_22_id23_276t.stl"/>
+    <mesh name="p23" file="parts\part_23_id26_276t.stl"/>
+    <mesh name="p24" file="parts\part_24_id34_276t.stl"/>
+    <mesh name="p25" file="parts\part_25_id5_228t.stl"/>
+  </asset>
+</mujoco>

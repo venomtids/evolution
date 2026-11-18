@@ -33,7 +33,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, DateTime, Text, Index, select, func, event
+    create_engine, Column, Integer, String, Float, DateTime, Text, Index, select, func, event, text
 )
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.pool import StaticPool
@@ -97,6 +97,7 @@ class Event(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     status = Column(String(20), nullable=False, index=True)  # NORMAL, ALERTA, CRITICO
     value = Column(Float, nullable=False)  # magnitude da anomalia
+    temperature = Column(Float, nullable=True)  # temperatura lida no sensor (°C)
     frame_path = Column(Text, nullable=True)  # caminho do arquivo salvo
     source = Column(String(50), default="vision")  # visão, manual, api
     
@@ -149,6 +150,23 @@ class Diagnostic(Base):
 Base.metadata.create_all(bind=engine)
 
 
+# ---------------------------------------------------------------------------
+# Migração leve: adiciona coluna "temperature" se não existir (DB legado)
+# ---------------------------------------------------------------------------
+def _ensure_temperature_column():
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE events ADD COLUMN temperature FLOAT"))
+    except Exception as e:
+        # Se a coluna já existe, ignorar; caso contrário, logar
+        if "duplicate column" not in str(e).lower():
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Skipping temperature column migration: {e}")
+
+
+_ensure_temperature_column()
+
+
 # ===========================================================================
 # Schemas Pydantic (Validação e Serialização)
 # ===========================================================================
@@ -157,6 +175,7 @@ class EventCreate(BaseModel):
     timestamp: Optional[datetime] = Field(default_factory=datetime.utcnow)
     status: str = Field(..., pattern="^(NORMAL|ALERTA|CRITICO)$")
     value: float
+    temperature: Optional[float] = None
     frame_path: Optional[str] = None
     source: str = "vision"
     
@@ -170,6 +189,7 @@ class EventResponse(BaseModel):
     timestamp: datetime
     status: str
     value: float
+    temperature: Optional[float] = None
     frame_path: Optional[str]
     source: str
     
@@ -730,9 +750,9 @@ async def get_status(db: Session = Depends(get_db)):
         select(func.count(Event.id)).where(Event.timestamp >= since)
     )
     
-    # Status ESP32
+    # Status ESP32 (conectado quando responde sem erro)
     esp32_status = await esp32_service.get_status()
-    esp32_connected = esp32_status.get("success", False)
+    esp32_connected = isinstance(esp32_status, dict) and "error" not in esp32_status
     
     # Erros na janela (para /status)
     errors_window = diagnostic_engine.error_tracker.count()
@@ -773,6 +793,51 @@ async def get_telemetry(
     ]
     
     return TelemetryResponse(points=points)
+
+
+@app.get("/temperature", response_model=dict)
+async def get_temperature(db: Session = Depends(get_db)):
+    """Retorna a temperatura atual do sistema (último evento com leitura térmica)."""
+    row = db.execute(
+        select(Event)
+        .where(Event.temperature.isnot(None))
+        .order_by(Event.timestamp.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return {
+        "temperature": row.temperature if row else 0.0,
+        "source": config.TEMP_SOURCE,
+        "thresholds": {
+            "alerta": config.TEMP_MAX_ALERTA,
+            "critico": config.TEMP_MAX_CRITICO,
+        },
+        "timestamp": (row.timestamp if row else datetime.utcnow()).isoformat(),
+    }
+
+
+@app.get("/temperature/history", response_model=dict)
+async def get_temperature_history(
+    limit: int = Query(300, ge=1, le=2000),
+    db: Session = Depends(get_db),
+):
+    """Histórico de leituras térmicas (para gráfico no dashboard)."""
+    rows = db.execute(
+        select(Event)
+        .where(Event.temperature.isnot(None))
+        .order_by(Event.timestamp.desc())
+        .limit(limit)
+    ).scalars().all()
+    rows = list(reversed(rows))
+    return {
+        "points": [
+            {
+                "timestamp": r.timestamp.isoformat(),
+                "temperature": r.temperature,
+                "status": r.status,
+            }
+            for r in rows
+        ]
+    }
 
 
 @app.post("/manual-stop", response_model=dict)
@@ -933,27 +998,51 @@ async def stream_mjpeg():
     BOUNDARY = b"frame"
 
     def generate():
+        last_mtime = 0.0
         while True:
             try:
                 if SNAPSHOT_PATH.exists():
-                    data = SNAPSHOT_PATH.read_bytes()
-                    yield (
-                        b"--" + BOUNDARY + b"\r\n"
-                        b"Content-Type: image/jpeg\r\n"
-                        b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n"
-                        + data
-                        + b"\r\n"
-                    )
+                    mtime = SNAPSHOT_PATH.stat().st_mtime
+                    if mtime != last_mtime:
+                        data = SNAPSHOT_PATH.read_bytes()
+                        last_mtime = mtime
+                        yield (
+                            b"--" + BOUNDARY + b"\r\n"
+                            b"Content-Type: image/jpeg\r\n"
+                            b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n"
+                            + data
+                            + b"\r\n"
+                        )
             except Exception:
-                # Em caso de erro de leitura transitório, aguarda e tenta de novo
                 pass
-            time.sleep(0.15)  # ~6-7 FPS no stream
+            time.sleep(0.03)
 
     return StreamingResponse(
         generate(),
         media_type="multipart/x-mixed-replace; boundary=frame",
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/motion")
+async def motion_state():
+    """
+    Estado de movimento do Vision Monitor (localização): célula 3x3 mais agitada,
+    direção dominante, magnitudes por célula. Atualizado ~4 Hz pelo monitor.
+    """
+    path = Path(config.LOGS_DIR) / "motion_state.json"
+    if not path.exists():
+        raise HTTPException(404, "Sem estado de movimento. O Vision Monitor está rodando?")
+    age = time.time() - path.stat().st_mtime
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(503, "Estado de movimento ilegível — tente novamente.")
+    data["age_seconds"] = round(age, 2)
+    data["fresh"] = age < 3.0
+    if age >= 3.0:
+        data["state"] = "SEM SINAL"
+    return data
 
 
 @app.get("/health")
@@ -1065,6 +1154,80 @@ async def ml_train(
     if not metrics.get("ok"):
         raise HTTPException(400, f"Falha no treino: {metrics.get('reason')}")
     return metrics
+
+
+# ===========================================================================
+# Aprendizado do PADRÃO da máquina (não supervisionado — sem rótulos)
+# ===========================================================================
+
+@app.get("/ml/pattern/status")
+async def ml_pattern_status(
+    user: "User" = Depends(get_current_user),
+):
+    """
+    Metadados do padrão de movimento aprendido (regimes, limites, janelas).
+    Nenhum rótulo/status é usado no aprendizado.
+    """
+    from pattern_learner import pattern_learner
+    return pattern_learner.status()
+
+
+@app.post("/ml/pattern/train")
+async def ml_pattern_train(
+    limit: int = Query(50000, ge=100, le=1000000),
+    db: Session = Depends(get_db),
+    user: "User" = Depends(get_current_user),
+):
+    """
+    Aprende o padrão da máquina apenas observando o histórico de movimento.
+
+    Importante: a coluna `status` (NORMAL/ALERTA/CRITICO) é IGNORADA.
+    O algoritmo descobre sozinho o comportamento padrão (k-NN + recorte
+    robusto), os regimes normais (KMeans) e os limites de anomalia
+    (percentis do próprio normal).
+    """
+    from pattern_learner import pattern_learner
+    from sqlalchemy import select as _select
+    import asyncio as _asyncio
+
+    rows = db.execute(
+        _select(Event).order_by(Event.timestamp.asc()).limit(limit)
+    ).scalars().all()
+
+    values, timestamps = [], []
+    for e in rows:
+        try:
+            value = float(e.value)
+        except (TypeError, ValueError):
+            continue
+        if not (0.0 <= value < 100.0):  # ignora eventos manuais (999) e inválidos
+            continue
+        if (e.source or "").lower() == "manual":
+            continue
+        values.append(value)
+        timestamps.append(e.timestamp)
+
+    if len(values) < 100:
+        raise HTTPException(400, f"Observações insuficientes: {len(values)}")
+
+    logger.info(
+        "Aprendizado do padrão solicitado por %s: %d observações (sem rótulos)",
+        user.username, len(values),
+    )
+    report = await _asyncio.to_thread(pattern_learner.learn, values, timestamps)
+    if not report.get("ok"):
+        raise HTTPException(400, f"Falha no aprendizado: {report.get('reason')}")
+    return report
+
+
+@app.post("/ml/pattern/reset")
+async def ml_pattern_reset(
+    user: "User" = Depends(get_current_user),
+):
+    """Apaga o padrão aprendido (use ao trocar de máquina/peça)."""
+    from pattern_learner import pattern_learner
+    logger.info("Reset do padrão solicitado por %s", user.username)
+    return pattern_learner.reset()
 
 
 # ===========================================================================

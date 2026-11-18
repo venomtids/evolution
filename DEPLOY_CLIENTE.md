@@ -57,8 +57,14 @@ mas chamadas autenticadas quebram.
 ```bash
 python vision_monitor.py
 ```
-Deixe como serviço (Task Scheduler no Windows / systemd no Linux) se quiser
-que suba sozinho após reboot.
+Ou clique duplo em **`start_evo_monitor.bat`** na pasta do repo (usa o `.venv`
+automaticamente, VIDEO_SOURCE=auto já configurado no `.env`).
+Para subir sozinho após login/reboot (opcional, 1 comando):
+```
+schtasks /create /tn "EVO Monitor" /sc onlog /tr "C:\caminho\do\repo\start_evo_monitor.bat" /f
+```
+(ou systemd no Linux). Após flashear o ESP32 com `flash_esp32.bat`, ele opera
+sozinho para sempre: heartbeat a cada 2s, reconecta Wi-Fi sozinho, sem PC nem botões.
 
 ## 5. Verificar (de qualquer lugar)
 ```bash

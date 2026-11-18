@@ -23,6 +23,11 @@
 - Via permissões (celular/PC de qualquer pessoa): aba WEB CAM do HMI → getUserMedia (HTTPS).
 - Ver `DEPLOY_CLIENTE.md`.
 
+## Deploy contínuo (sem CLI)
+`git push` na `Visionard` → Vercel builda e publica em `evolution-beta-six.vercel.app`
+(Project Settings → Environments → Production → Branch Tracking = **Visionard**,
+confirmado por `vercel project inspect`). Preview deployments saem para os demais branches.
+
 ## Verificação (comandos)
 ```bash
 B=https://evolution-beta-six.vercel.app
